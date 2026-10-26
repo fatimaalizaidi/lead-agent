@@ -1,7 +1,9 @@
-# Render Blueprint — one-click Web Service from this Dockerfile.
-# In the Render dashboard: New → Blueprint → connect this repo (or paste path).
-# Set OPENAI_API_KEY as a secret in the service Environment tab (sync: false).
-# Public URL → use https://YOUR-SERVICE.onrender.com/analyze-lead in n8n.
+# Render Blueprint — Web Service from this Dockerfile.
+# Dashboard: New + → Blueprint → connect repo with this file at root.
+# Or: New + → Web Service → Runtime Docker → Health Check Path /health
+#     (leave Start Command empty — Dockerfile CMD uses $PORT).
+# Set OPENAI_API_KEY in Environment (sync: false = dashboard secret only).
+# n8n: POST https://YOUR-SERVICE.onrender.com/analyze-lead
 services:
   - type: web
     name: lead-analyzer

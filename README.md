@@ -208,23 +208,15 @@ Never logged: `OPENAI_API_KEY`, full prompts, message bodies, or raw upstream er
 
 Restart uvicorn after changing `observability.py` / `main.py` / `errors.py` (with `--reload`, saving those files is enough). Install the new dependency once: `pip install -r requirements.txt`.
 
-## Deploy / Going live
+## Deploy / Going live (Render)
 
-Expose the API so **n8n** can `POST` JSON to `/analyze-lead`. Full student walkthrough: **[DEPLOY.md](./DEPLOY.md)**. Do not commit `.env` or bake keys into the image — pass `OPENAI_API_KEY` at runtime.
+Full walkthrough: **[DEPLOY.md](./DEPLOY.md)**. Do not commit `.env` or bake keys into the image — set `OPENAI_API_KEY` as a Render secret.
 
-### Path A — ngrok (quick tunnel)
+1. `git init` → push to GitHub (confirm `.gitignore` keeps `.env` out).
+2. Render dashboard → **New +** → **Web Service** → connect repo → **Runtime: Docker** → Health Check Path `/health` → leave Start Command empty → set env `OPENAI_API_KEY` → **Create Web Service**.
+3. n8n **HTTP Request**: `POST {public_url}/analyze-lead` with JSON `{"message":"...","email":"..."}` (optional header `X-Request-ID`).
 
-1. Start the app: `uvicorn main:app --host 0.0.0.0 --port 8000` **or** `docker compose up --build`.
-2. In another terminal: `ngrok http 8000` (you configure ngrok auth yourself).
-3. In n8n **HTTP Request**: method `POST`, URL `https://YOUR-NGROK-HOST/analyze-lead`, body JSON `{"message":"...","email":"..."}`.
-
-### Path B — Render / Railway (Docker host)
-
-1. Push this repo (without secrets). Deploy with the included **`Dockerfile`** + **`render.yaml`** (Render Blueprint → Web Service from Docker), or point Railway at the same Dockerfile.
-2. Set secret **`OPENAI_API_KEY`** in the host dashboard (optional: `OPENAI_MODEL`, etc.).
-3. Copy the public HTTPS base URL into n8n: `https://YOUR-SERVICE/analyze-lead` (POST JSON).
-
-Local Docker without a cloud host: `docker compose up --build` (uses `env_file: .env`, port `8000`). Health check: `GET /health`.
+Also included: `render.yaml` (Blueprint), `docker-compose.yml` for local Docker. Alternate quick tunnel (ngrok) is documented in DEPLOY.md.
 
 ## Refine the prompt
 

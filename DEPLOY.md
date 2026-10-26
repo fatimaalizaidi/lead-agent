@@ -1,174 +1,159 @@
-# Deploy / Going live
+# Deploy / Going live (Render)
 
-Student-friendly steps to expose the Lead Analyzer so **n8n** can `POST` JSON to `/analyze-lead`.
+Expose the Lead Analyzer so **n8n** can `POST` JSON to `/analyze-lead` over HTTPS.
 
-You need an OpenAI API key in the environment as `OPENAI_API_KEY`. Never commit `.env` or paste keys into git, chat, or screenshots.
+**Chosen host: [Render](https://render.com)** — Web Service from Docker (`Dockerfile` + optional `render.yaml`).
+
+You need an OpenAI API key as env var `OPENAI_API_KEY`. Never commit `.env`, bake keys into the image, or paste keys into git/chat/screenshots. `.gitignore` already ignores `.env` and `.env.*` (keeps `.env.example`).
 
 ---
 
-## Path A — Quick tunnel (ngrok)
+## 1. Init git and push to GitHub (you do this)
 
-Best for demos and homework when you do not want a cloud host yet.
-
-### 1. Start the API locally
-
-**Option A1 — uvicorn (venv)**
+Render deploys from a GitHub/GitLab repo. If this folder is not a git repo yet:
 
 ```bash
 cd ~/Projects/lead-agent
-source .venv/bin/activate
-# Ensure .env has OPENAI_API_KEY=...
-uvicorn main:app --host 0.0.0.0 --port 8000
+
+# Confirm secrets will not be committed
+grep -n '^\.env' .gitignore   # should list .env and .env.*
+
+git init
+git add .
+git status   # must NOT list .env — only .env.example is OK
+git commit -m "Initial commit: Lead Analyzer API with Docker/Render deploy assets"
 ```
 
-**Option A2 — Docker Compose**
+Create an empty GitHub repo (e.g. `lead-agent`), then:
 
 ```bash
-cd ~/Projects/lead-agent
-# Ensure .env exists with OPENAI_API_KEY (compose loads env_file: .env)
-docker compose up --build
+git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/lead-agent.git
+git push -u origin main
 ```
 
-Confirm locally:
+(Agents will not create the remote or push for you — no GitHub credentials assumed.)
 
-```bash
-curl -s http://127.0.0.1:8000/health
+---
+
+## 2. Create a Render Web Service (exact click-path)
+
+### Option A — Manual Web Service (clearest for first deploy)
+
+1. Open [https://dashboard.render.com](https://dashboard.render.com) and sign in.
+2. Click **New +** → **Web Service**.
+3. **Connect a repository** → authorize GitHub if needed → select your `lead-agent` repo → **Connect**.
+4. Configure:
+   | Field | Value |
+   |-------|--------|
+   | **Name** | `lead-analyzer` (or any name) |
+   | **Region** | closest to you |
+   | **Branch** | `main` |
+   | **Runtime** | **Docker** |
+   | **Dockerfile Path** | `./Dockerfile` (default) |
+   | **Docker Context** | `.` |
+   | **Instance type** | **Free** is fine for class demos |
+5. **Health Check Path**: `/health`
+6. **Start Command**: leave **empty** — the Dockerfile `CMD` already runs  
+   `uvicorn main:app --host 0.0.0.0 --port $PORT`  
+   (Render injects `PORT`; do not hardcode `8000` in the dashboard.)
+7. Under **Environment** → **Add Environment Variable**:
+   | Key | Value |
+   |-----|--------|
+   | `OPENAI_API_KEY` | your key (use **Secret** / leave unsynced) |
+
+   Optional: `OPENAI_MODEL=gpt-4o-mini`, `RAG_K`, `RAG_SCORE_THRESHOLD`, `OPENAI_TIMEOUT_SECONDS` (see `.env.example`).
+8. Click **Create Web Service** and wait for the first build/deploy (several minutes).
+
+### Option B — Blueprint (`render.yaml`)
+
+1. Dashboard → **New +** → **Blueprint**.
+2. Connect the same repo (must contain `render.yaml` at the root).
+3. Apply the Blueprint. Set `OPENAI_API_KEY` when prompted (`sync: false` = you enter it in the dashboard; it is not stored in the yaml).
+
+---
+
+## 3. Confirm the public URL
+
+After status is **Live**, Render shows a URL like:
+
+```text
+https://lead-analyzer-xxxx.onrender.com
 ```
 
-### 2. Install and run ngrok
-
-1. Create a free account at [ngrok.com](https://ngrok.com) and install the CLI.
-2. One-time auth (you run this yourself — agents will not):
+Smoke tests:
 
 ```bash
-ngrok config add-authtoken YOUR_TOKEN_FROM_DASHBOARD
-```
+# Liveness
+curl -s https://YOUR-SERVICE.onrender.com/health
 
-3. In a **second** terminal, tunnel port 8000:
-
-```bash
-ngrok http 8000
-```
-
-Copy the **https** Forwarding URL (looks like `https://abcd-12-34-56-78.ngrok-free.app`).
-
-### 3. Wire n8n
-
-In an **HTTP Request** node:
-
-| Setting | Value |
-|---------|--------|
-| Method | `POST` |
-| URL | `https://YOUR-NGROK-HOST/analyze-lead` |
-| Body | JSON |
-| JSON body | `{"message": "{{ $json.message }}", "email": "{{ $json.email }}"}` (adjust to your fields) |
-| Headers | `Content-Type: application/json` (optional: `X-Request-ID` for tracing) |
-
-Smoke test from your machine:
-
-```bash
-curl -s -X POST "https://YOUR-NGROK-HOST/analyze-lead" \
+# Analyze (replace host; never put your API key in curl for the public URL — the server already has it)
+curl -s -X POST "https://YOUR-SERVICE.onrender.com/analyze-lead" \
   -H "Content-Type: application/json" \
+  -H "X-Request-ID: demo-n8n-001" \
   -d '{"message":"Need a demo this week for 200 seats. Budget approved.","email":"alex@acme.com"}'
 ```
 
 **Notes**
 
-- Free ngrok URLs change when you restart the tunnel — update n8n each time.
-- Keep uvicorn/Docker and ngrok both running while you test.
-- Do not share the URL publicly for long; it reaches your laptop.
+- Free instances **sleep when idle**; the first request after sleep can take ~30–60s.
+- Ephemeral disk: Chroma under `data/chroma` rebuilds on first request after a fresh deploy/restart.
+- Never put `OPENAI_API_KEY` in the Dockerfile or commit it.
 
 ---
 
-## Path B — Cloud host (Render)
-
-Best when you want a stable HTTPS URL without keeping your laptop on.
-
-This repo includes `Dockerfile` + `render.yaml` (Blueprint). Railway also works with the same Dockerfile (set `OPENAI_API_KEY` as a secret; the image listens on `0.0.0.0:$PORT`).
-
-### 1. Put the project on GitHub (or GitLab)
-
-Push this folder (without `.env`, `.venv`, `data/`, `logs/`) to a repo Render can access. `.gitignore` already excludes secrets and local data.
-
-### 2. Create the Render Web Service
-
-**Blueprint (preferred)**
-
-1. [Render Dashboard](https://dashboard.render.com) → **New** → **Blueprint**.
-2. Connect the repo that contains `render.yaml` and `Dockerfile`.
-3. Apply the Blueprint. Render builds from Docker.
-
-**Manual**
-
-1. **New** → **Web Service** → connect repo.
-2. Runtime: **Docker** (uses `./Dockerfile`).
-3. Plan: Free is fine for class demos (spins down when idle).
-
-### 3. Set the secret
-
-In the service **Environment**:
-
-| Key | Value |
-|-----|--------|
-| `OPENAI_API_KEY` | your key (mark as secret) |
-
-Optional: `OPENAI_MODEL`, `RAG_K`, `RAG_SCORE_THRESHOLD`, `OPENAI_TIMEOUT_SECONDS` (see `.env.example`).
-
-Render injects `PORT`; the Dockerfile already runs `uvicorn` on `0.0.0.0:$PORT`.
-
-### 4. Deploy and copy the public URL
-
-After the first successful deploy, open:
-
-- Health: `https://YOUR-SERVICE.onrender.com/health`
-- Analyze: `https://YOUR-SERVICE.onrender.com/analyze-lead`
-
-### 5. Wire n8n
-
-Same as Path A, but use the Render URL:
+## 4. Wire n8n (HTTP Request node)
 
 | Setting | Value |
 |---------|--------|
-| Method | `POST` |
-| URL | `https://YOUR-SERVICE.onrender.com/analyze-lead` |
-| Body | JSON with `message` + `email` |
+| **Method** | `POST` |
+| **URL** | `https://YOUR-SERVICE.onrender.com/analyze-lead` |
+| **Send Body** | On |
+| **Body Content Type** | JSON |
+| **JSON** | see below |
+| **Headers** | `Content-Type: application/json` |
+| **Optional header** | `X-Request-ID` = any string (or `{{ $execution.id }}`) for log correlation |
 
-```bash
-curl -s -X POST "https://YOUR-SERVICE.onrender.com/analyze-lead" \
-  -H "Content-Type: application/json" \
-  -d '{"message":"What does Growth plan cost per month?","email":"buyer@acme.com"}'
+**JSON body** (map fields from your workflow):
+
+```json
+{
+  "message": "{{ $json.message }}",
+  "email": "{{ $json.email }}"
+}
 ```
 
-**Notes**
+**URL pattern to remember:**
 
-- Free Render services sleep after idle time — the first request after sleep can take ~30–60s.
-- Chroma rebuilds on first request if `data/chroma` is empty (ephemeral disk on free tier).
-- Never put `OPENAI_API_KEY` in the Dockerfile or commit it.
+```text
+POST {public_url}/analyze-lead
+```
 
-### Railway (alternate)
+Example: `https://lead-analyzer-xxxx.onrender.com/analyze-lead`
 
-1. New project → Deploy from GitHub → Dockerfile.
-2. Variables: set `OPENAI_API_KEY` (secret).
-3. Use the generated `*.up.railway.app` URL + `/analyze-lead` in n8n.
+Expected JSON fields in the response include `priority`, `suggested_response`, `rationale`, `knowledge_sources`, `needs_human_review`, `fallback_reason`.
 
 ---
 
-## Checklist before calling it “live”
+## Path A (alternate) — ngrok quick tunnel
 
-- [ ] `GET /health` returns OK on the public URL
-- [ ] `POST /analyze-lead` returns JSON with `priority` / `suggested_response`
-- [ ] n8n HTTP Request uses **https** + path `/analyze-lead`
-- [ ] `OPENAI_API_KEY` is only in local `.env` or the host’s secret store
-- [ ] No API keys in git, README screenshots, or shared docs
+Use only if you want a temporary URL without Render. Start locally (`uvicorn` or `docker compose up --build`), then in another terminal: `ngrok http 8000`. Point n8n at `https://YOUR-NGROK-HOST/analyze-lead` the same way as above. Free ngrok URLs change on restart. Do not ask agents to run `ngrok` auth for you.
 
-## Local Docker reference
+---
+
+## Checklist
+
+- [ ] `.env` is **not** in git (`git status` clean of secrets)
+- [ ] Repo pushed to GitHub; Render Web Service = **Docker**
+- [ ] Env `OPENAI_API_KEY` set as a **secret** on Render
+- [ ] Health check path `/health`; start command left empty (Dockerfile CMD)
+- [ ] `GET /health` OK on the public URL
+- [ ] n8n: `POST {public_url}/analyze-lead` with JSON `message` + `email` (optional `X-Request-ID`)
+
+## Local Docker reference (optional)
 
 ```bash
-# Build (no secrets in the image)
 docker build -t lead-analyzer .
-
-# Run with key from env (example — use your own key / .env, never commit it)
 docker run --rm -p 8000:8000 --env-file .env lead-analyzer
+# or: docker compose up --build
 ```
-
-Or: `docker compose up --build` (reads `.env` via `env_file`).

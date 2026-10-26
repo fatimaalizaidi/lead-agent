@@ -12,8 +12,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN useradd --create-home --uid 1000 appuser
 
+# chroma-hnswlib may compile from source (needs g++); purge afterward to keep image lean.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --chown=appuser:appuser requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && apt-get purge -y --auto-remove build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --chown=appuser:appuser main.py rag.py config.py errors.py guardrails.py observability.py ./
 COPY --chown=appuser:appuser knowledge/ ./knowledge/

@@ -2,7 +2,7 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# PORT is overridden by hosts (Render/Railway). Secrets are NOT baked in —
+# PORT is overridden by hosts (Render). Secrets are NOT baked in —
 # pass OPENAI_API_KEY at runtime (-e / env_file / platform secret).
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -12,13 +12,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN useradd --create-home --uid 1000 appuser
 
-# chroma-hnswlib may compile from source (needs g++); purge afterward to keep image lean.
+COPY --chown=appuser:appuser requirements.txt .
+
+# chroma-hnswlib may compile from source (needs g++); purge toolchain afterward.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --chown=appuser:appuser requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir -r requirements.txt \
     && apt-get purge -y --auto-remove build-essential \
     && rm -rf /var/lib/apt/lists/*
 
@@ -33,5 +32,5 @@ USER appuser
 
 EXPOSE 8000
 
-# Shell form so $PORT expands (Render/Railway inject PORT).
+# Shell form so $PORT expands (Render injects PORT).
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

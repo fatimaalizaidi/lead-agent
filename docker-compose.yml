@@ -1,0 +1,16 @@
+# Optional local Docker run. Requires a local `.env` with OPENAI_API_KEY
+# (never commit `.env`). Example:
+#   docker compose up --build
+services:
+  lead-analyzer:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      PORT: "8000"
+    volumes:
+      # Persist Chroma index across container restarts (optional but handy).
+      - ./data:/app/data
+      - ./logs:/app/logs

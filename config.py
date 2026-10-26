@@ -1,0 +1,32 @@
+"""Application settings loaded from environment / `.env` (never log secrets)."""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Runtime config. `openai_api_key` is read from OPENAI_API_KEY; never log or return it."""
+
+    openai_api_key: str
+    openai_model: str = "gpt-4o-mini"
+    rag_k: int = 3
+    # Chroma L2 distance via similarity_search_with_score: **lower is better**.
+    # Scores worse than (greater than) this threshold → low RAG confidence → force High.
+    rag_score_threshold: float = 1.2
+    # Per-request OpenAI chat timeout (seconds). Hard failure → HTTP 502 for n8n retry.
+    openai_timeout_seconds: float = 30.0
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Cached Settings instance (loads `.env` once per process)."""
+    return Settings()

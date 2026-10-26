@@ -1,0 +1,17 @@
+# Render Blueprint — one-click Web Service from this Dockerfile.
+# In the Render dashboard: New → Blueprint → connect this repo (or paste path).
+# Set OPENAI_API_KEY as a secret in the service Environment tab (sync: false).
+# Public URL → use https://YOUR-SERVICE.onrender.com/analyze-lead in n8n.
+services:
+  - type: web
+    name: lead-analyzer
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini

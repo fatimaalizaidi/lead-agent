@@ -13,6 +13,11 @@ from fastapi import FastAPI
 from loguru import logger
 from pydantic import BaseModel, EmailStr, Field, ValidationError, field_validator
 
+from agent import (
+    AgentActionRequest,
+    AgentActionResponse,
+    run_agent_action,
+)
 from config import get_settings
 from errors import (
     AppError,
@@ -135,8 +140,11 @@ class ErrorBody(BaseModel):
 
 app = FastAPI(
     title="Lead Analyzer",
-    description="Classify lead priority and draft a suggested response with OpenAI + local RAG.",
-    version="1.4.0",
+    description=(
+        "Classify lead priority and draft a suggested response with OpenAI + local RAG. "
+        "Also exposes POST /agent-action for autonomous tool-calling (quote, calendar, escalate)."
+    ),
+    version="1.5.0",
 )
 app.add_middleware(RequestIdMiddleware)
 register_exception_handlers(app)
@@ -460,3 +468,58 @@ async def analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
             needs_human_review=None,
         )
         raise
+
+
+@app.post(
+    "/agent-action",
+    response_model=AgentActionResponse,
+    responses={
+        400: {"model": ErrorBody},
+        401: {"model": ErrorBody},
+        429: {"model": ErrorBody},
+        500: {"model": ErrorBody},
+        502: {"model": ErrorBody},
+    },
+)
+async def agent_action(body: AgentActionRequest) -> AgentActionResponse:
+    """Run an autonomous agent turn with OpenAI tool calling.
+
+    The model chooses among ``calculate_custom_quote``, ``check_calendar_availability``,
+    and ``escalate_to_human_support``. Tools are real Python functions; results are
+    returned with a short ``agent_reply``. Hard LLM failures → HTTP 502 for n8n retry.
+    """
+    started = time.perf_counter()
+    log_request_start(
+        path="/agent-action",
+        email_domain=email_domain_only(str(body.email)),
+    )
+
+    try:
+        result = await run_agent_action(
+            message=body.message,
+            email=str(body.email),
+        )
+        log_request_end(
+            status=200,
+            total_ms=elapsed_ms(started),
+            needs_human_review=None,
+        )
+        return result
+    except AppError as exc:
+        log_request_end(
+            status=exc.status_code,
+            total_ms=elapsed_ms(started),
+            needs_human_review=None,
+        )
+        raise
+    except Exception as exc:
+        logger.exception("Agent path failed unexpectedly")
+        log_request_end(
+            status=502,
+            total_ms=elapsed_ms(started),
+            needs_human_review=None,
+        )
+        raise UpstreamError(
+            "Agent action failed due to an upstream error.",
+            error_code="openai_unexpected",
+        ) from exc

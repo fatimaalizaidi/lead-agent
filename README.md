@@ -2,6 +2,8 @@
 
 FastAPI + Pydantic service that uses OpenAI to classify inbound leads as **High**, **Medium**, or **Low** and draft a short suggested reply. Before calling the model, it retrieves relevant company KB articles from a local ChromaDB store (LangChain) and injects them into the prompt.
 
+Project Context guides (RAG, n8n, deploy, observability, and more): **[docs/](./docs/)**.
+
 ## Setup
 
 ```bash

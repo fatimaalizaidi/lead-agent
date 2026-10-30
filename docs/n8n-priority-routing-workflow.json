@@ -1,0 +1,473 @@
+{
+  "name": "Lead Priority Routing Hub",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "lead-agent-local"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Lead Priority Routing Hub\n\n**Entry:** `POST /webhook/lead-priority` (or test URL while inactive).\n\n**Analyze:** `POST http://host.docker.internal:8000/analyze-lead`\n\n**Branches on** `{{ $json.priority }}` (case-insensitive High / Medium / Low):\n\n1. **High** → Slack Incoming Webhook\n2. **Medium** → local JSON file under `/home/node/.n8n-files/medium-leads/`\n3. **Low** → SMTP auto-reply email\n\nPaste Slack webhook URL on **Notify Slack (High)**. Add an **SMTP** credential on **Send Auto-Reply (Low)**.\n\nOptional later: second HTTP call to `/agent-action` (no `priority` — do not use for Switch).",
+        "height": 420,
+        "width": 380,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-560, -280],
+      "id": "ff288ce7-822d-441d-9a1b-533107e30236",
+      "name": "Setup Notes"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-priority",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [-224, -32],
+      "id": "cb125a06-b6ca-4fa9-97eb-40effbe63bd6",
+      "name": "Webhook",
+      "webhookId": "1c14fd13-a164-470f-a161-ca250a5a83e5"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "931d1f9f-3e59-4ea9-b089-22c42d7b2c8b",
+              "name": "message",
+              "value": "={{ $json.body.message }}",
+              "type": "string"
+            },
+            {
+              "id": "b4290a71-3159-45cc-a0ae-faba1a50995a",
+              "name": "email",
+              "value": "={{ $json.body.email }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [0, -32],
+      "id": "e4c60a44-9047-441f-9c01-ef571a23be46",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/analyze-lead",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Request-ID",
+              "value": "={{ $execution.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"email\": {{ JSON.stringify($json.email) }},\n  \"message\": {{ JSON.stringify($json.message) }}\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [224, -32],
+      "id": "b950eda4-b6ce-4032-b51f-2cabf516812e",
+      "name": "Analyze Lead",
+      "notesInFlow": true,
+      "notes": "Primary classifier. Do not Switch on /agent-action (no priority field)."
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "f3dd9556-bd1c-4d6e-81da-565cb1d85842",
+                    "leftValue": "={{ ($json.priority || '').toString().trim().toLowerCase() }}",
+                    "rightValue": "high",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "High"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "234cb84f-3926-46ca-ad78-04f22af939f7",
+                    "leftValue": "={{ ($json.priority || '').toString().trim().toLowerCase() }}",
+                    "rightValue": "medium",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Medium"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "d740cf5c-e784-4e83-953a-8a6fadbc68da",
+                    "leftValue": "={{ ($json.priority || '').toString().trim().toLowerCase() }}",
+                    "rightValue": "low",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Low"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "ignoreCase": true,
+          "renameFallbackOutput": "Other"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [448, -32],
+      "id": "2f8c5faf-f6ea-4253-99a2-a036a4c96025",
+      "name": "Route by Priority"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/REPLACE/WITH/YOUR_WEBHOOK",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": {{ JSON.stringify(':rotating_light: *High priority lead*\\n*Email:* ' + $json.email + '\\n*Priority:* ' + $json.priority + '\\n*Rationale:* ' + ($json.rationale || '') + '\\n*Suggested reply:* ' + ($json.suggested_response || '')) }}\n}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [720, -240],
+      "id": "38e1e5be-64a0-4c5b-859e-a56817a568a8",
+      "name": "Notify Slack (High)",
+      "notesInFlow": true,
+      "notes": "Replace URL with Slack Incoming Webhook. create at api.slack.com/apps → Incoming Webhooks.",
+      "onError": "continueRegularOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "options": {
+          "fileName": "={{ ($('Analyze Lead').item.json.email || 'lead').toString().replaceAll('@', '_at_') + '-' + $now.toFormat('yyyyMMdd-HHmmss') + '.json' }}"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [720, -32],
+      "id": "55eb40f8-8ccb-4109-8b5e-52acd59c6a9c",
+      "name": "Lead to JSON File"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/home/node/.n8n-files/medium-leads/{{ $binary.data.fileName || ('lead-' + $now.toMillis() + '.json') }}",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [944, -32],
+      "id": "a1b2c3d4-e5f6-4789-a012-3456789abcde",
+      "name": "Store Medium Lead",
+      "notesInFlow": true,
+      "notes": "Allowed path ~/.n8n-files (N8N_RESTRICT_FILE_ACCESS_TO). View: docker exec n8n-workspace-n8n-1 ls /home/node/.n8n-files/medium-leads"
+    },
+    {
+      "parameters": {
+        "fromEmail": "leads-noreply@example.com",
+        "toEmail": "={{ $('Analyze Lead').item.json.email }}",
+        "subject": "Thanks for reaching out — we got your message",
+        "emailFormat": "text",
+        "text": "={{ 'Hi,\\n\\n' + ($('Analyze Lead').item.json.suggested_response || 'Thanks for your message — our team will follow up soon.') + '\\n\\n— Lead desk' }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [720, 176],
+      "id": "b2c3d4e5-f6a7-4890-b123-456789abcdef",
+      "name": "Send Auto-Reply (Low)",
+      "notesInFlow": true,
+      "notes": "Add SMTP credential (or swap for Gmail OAuth). continueOnFail so webhook still responds without creds.",
+      "onError": "continueRegularOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c3d4e5f6-a7b8-4901-c234-56789abcdef0",
+              "name": "email",
+              "value": "={{ $('Analyze Lead').item.json.email }}",
+              "type": "string"
+            },
+            {
+              "id": "d4e5f6a7-b8c9-4012-d345-6789abcdef01",
+              "name": "priority",
+              "value": "={{ $('Analyze Lead').item.json.priority }}",
+              "type": "string"
+            },
+            {
+              "id": "e5f6a7b8-c9d0-4123-e456-789abcdef012",
+              "name": "suggested_response",
+              "value": "={{ $('Analyze Lead').item.json.suggested_response }}",
+              "type": "string"
+            },
+            {
+              "id": "f6a7b8c9-d0e1-4234-f567-89abcdef0123",
+              "name": "rationale",
+              "value": "={{ $('Analyze Lead').item.json.rationale }}",
+              "type": "string"
+            },
+            {
+              "id": "a7b8c9d0-e1f2-4345-a678-9abcdef01234",
+              "name": "knowledge_sources",
+              "value": "={{ $('Analyze Lead').item.json.knowledge_sources }}",
+              "type": "array"
+            },
+            {
+              "id": "b8c9d0e1-f2a3-4456-b789-abcdef012345",
+              "name": "needs_human_review",
+              "value": "={{ $('Analyze Lead').item.json.needs_human_review }}",
+              "type": "boolean"
+            },
+            {
+              "id": "c9d0e1f2-a3b4-4567-c890-bcdef0123456",
+              "name": "fallback_reason",
+              "value": "={{ $('Analyze Lead').item.json.fallback_reason }}",
+              "type": "string"
+            },
+            {
+              "id": "d0e1f2a3-b4c5-4678-d901-cdef01234567",
+              "name": "routed_branch",
+              "value": "={{ ($('Analyze Lead').item.json.priority || 'Other').toString() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [1168, -32],
+      "id": "e1f2a3b4-c5d6-4789-e012-def012345678",
+      "name": "Build Webhook Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1392, -32],
+      "id": "f2a3b4c5-d6e7-4890-f123-ef0123456789",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Analyze Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Lead": {
+      "main": [
+        [
+          {
+            "node": "Route by Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Priority": {
+      "main": [
+        [
+          {
+            "node": "Notify Slack (High)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lead to JSON File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Auto-Reply (Low)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Slack (High)": {
+      "main": [
+        [
+          {
+            "node": "Build Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead to JSON File": {
+      "main": [
+        [
+          {
+            "node": "Store Medium Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Medium Lead": {
+      "main": [
+        [
+          {
+            "node": "Build Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Auto-Reply (Low)": {
+      "main": [
+        [
+          {
+            "node": "Build Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Webhook Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "active": false,
+  "tags": [
+    {
+      "name": "lead-agent"
+    },
+    {
+      "name": "priority-routing"
+    }
+  ]
+}

@@ -21,7 +21,7 @@ RUN apt-get update \
     && apt-get purge -y --auto-remove build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --chown=appuser:appuser main.py rag.py config.py errors.py guardrails.py observability.py agent.py tools.py ./
+COPY --chown=appuser:appuser main.py rag.py config.py errors.py guardrails.py observability.py agent.py tools.py memory.py ./
 COPY --chown=appuser:appuser knowledge/ ./knowledge/
 
 # Writable dirs for Chroma persistence + rotating logs (app runs as non-root).

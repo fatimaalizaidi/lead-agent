@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     rag_score_threshold: float = 1.2
     # Per-request OpenAI chat timeout (seconds). Hard failure → HTTP 502 for n8n retry.
     openai_timeout_seconds: float = 30.0
+    # Conversation memory (Redis). Empty REDIS_URL → memory soft-disabled (stateless).
+    redis_url: str = ""
+    # TTL for each thread's message list (seconds). Default 7 days.
+    memory_ttl_seconds: int = 604800
+    # Max role+content messages retained per thread (oldest dropped).
+    memory_max_messages: int = 20
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -5,6 +5,7 @@ User-facing notes copied from Cursor Project Context so Claude Desktop (and anyo
 | Guide | Description |
 |-------|-------------|
 | [agent-tools.md](./agent-tools.md) | Agent tool-calling (`POST /agent-action`) |
+| [conversation-memory.md](./conversation-memory.md) | Redis multi-turn memory (`thread_id`) |
 | [deploy-going-live.md](./deploy-going-live.md) | Deploy / going live on Render (overview) |
 | [lead-analyzer/DEPLOY.md](./lead-analyzer/DEPLOY.md) | Full Render deploy walkthrough for n8n |
 | [docker-compose.md](./docker-compose.md) | Docker Compose for the FastAPI backend |

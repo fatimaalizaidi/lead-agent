@@ -37,6 +37,7 @@ from observability import (
     log_request_start,
     setup_logging,
 )
+from memory import append_messages, history_for_openai, resolve_thread_id
 from rag import (
     format_context_for_prompt,
     knowledge_source_titles,
@@ -54,6 +55,8 @@ SYSTEM_PROMPT = """You triage inbound leads. Be decisive and brief.
 High = clear buying intent (budget, timeline, seats, urgency).
 Medium = interested but exploratory.
 Low = vague, spam, or poor fit.
+When earlier user/assistant turns are present in this chat, treat them as the same
+conversation — reuse company names, seat counts, and commitments the lead already stated.
 When COMPANY KNOWLEDGE is provided, ground suggested_response in those facts
 (pricing, SLA, onboarding, support hours, refunds) when the lead asks about them.
 Do not invent policy details that contradict the knowledge. If knowledge is empty
@@ -99,6 +102,10 @@ class LeadAnalysisResult(BaseModel):
 class AnalyzeLeadRequest(BaseModel):
     message: str = Field(..., min_length=1, description="User / lead message text")
     email: EmailStr = Field(..., description="Lead email address")
+    thread_id: str | None = Field(
+        default=None,
+        description="Optional conversation thread id; server generates a UUID when omitted",
+    )
 
     @field_validator("message")
     @classmethod
@@ -110,6 +117,14 @@ class AnalyzeLeadRequest(BaseModel):
     @classmethod
     def sanitize_email_field(cls, value: EmailStr) -> str:
         return sanitize_email(str(value))
+
+    @field_validator("thread_id")
+    @classmethod
+    def strip_thread_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class AnalyzeLeadResponse(BaseModel):
@@ -129,6 +144,10 @@ class AnalyzeLeadResponse(BaseModel):
         default=None,
         description="Short machine-readable reason when a fallback path was used",
     )
+    thread_id: str = Field(
+        ...,
+        description="Conversation thread id (echoed or newly generated)",
+    )
 
 
 class ErrorBody(BaseModel):
@@ -144,7 +163,7 @@ app = FastAPI(
         "Classify lead priority and draft a suggested response with OpenAI + local RAG. "
         "Also exposes POST /agent-action for autonomous tool-calling (quote, calendar, escalate)."
     ),
-    version="1.5.0",
+    version="1.6.0",
 )
 app.add_middleware(RequestIdMiddleware)
 register_exception_handlers(app)
@@ -257,6 +276,8 @@ async def _analyze_with_openai(
     message: str,
     email: str,
     knowledge_chunks: list[dict[str, str]],
+    *,
+    prior_messages: list[dict[str, Any]] | None = None,
 ) -> LeadAnalysisResult:
     """Call OpenAI with strict JSON schema. Hard failures → UpstreamError (HTTP 502)."""
     client = _get_async_client()
@@ -269,16 +290,21 @@ async def _analyze_with_openai(
         f"COMPANY KNOWLEDGE (retrieved; use when relevant):\n{kb_block}"
     )
 
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+    ]
+    # Prior user/assistant turns (Redis); keep context without replaying system.
+    if prior_messages:
+        messages.extend(prior_messages)
+    messages.append({"role": "user", "content": user_content})
+
     started = time.perf_counter()
     try:
         completion = await client.chat.completions.create(
             model=settings.openai_model,
             temperature=0,  # deterministic → less waffle, usually faster to settle
             max_tokens=MAX_TOKENS,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
+            messages=messages,
             response_format={
                 "type": "json_schema",
                 "json_schema": {
@@ -395,6 +421,7 @@ async def analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
     so n8n can retry.
     """
     started = time.perf_counter()
+    thread_id = resolve_thread_id(body.thread_id)
     # body.message / body.email already sanitized by Pydantic validators (guardrails).
     # Log domain only — never dump full email/message/PII into structured logs.
     log_request_start(
@@ -406,6 +433,7 @@ async def analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
         chunks, rag_unavailable, low_confidence, _best_score = await _retrieve_knowledge(
             body.message
         )
+        prior = history_for_openai(thread_id)
 
         # If RAG is down, call LLM without KB; still require a successful model response.
         try:
@@ -413,6 +441,7 @@ async def analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
                 message=body.message,
                 email=str(body.email),
                 knowledge_chunks=[] if rag_unavailable else chunks,
+                prior_messages=prior,
             )
         except AppError:
             raise
@@ -447,6 +476,15 @@ async def analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
                 "Low KB match confidence — manual human review advised.",
             )
 
+        # Persist this turn (user message + assistant suggested reply) for follow-ups.
+        append_messages(
+            thread_id,
+            [
+                {"role": "user", "content": body.message},
+                {"role": "assistant", "content": result.suggested_response},
+            ],
+        )
+
         log_request_end(
             status=200,
             total_ms=elapsed_ms(started),
@@ -460,6 +498,7 @@ async def analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
             knowledge_sources=sources,
             needs_human_review=needs_human_review,
             fallback_reason=fallback_reason,
+            thread_id=thread_id,
         )
     except AppError as exc:
         log_request_end(
@@ -489,6 +528,7 @@ async def agent_action(body: AgentActionRequest) -> AgentActionResponse:
     returned with a short ``agent_reply``. Hard LLM failures → HTTP 502 for n8n retry.
     """
     started = time.perf_counter()
+    thread_id = resolve_thread_id(body.thread_id)
     log_request_start(
         path="/agent-action",
         email_domain=email_domain_only(str(body.email)),
@@ -498,6 +538,7 @@ async def agent_action(body: AgentActionRequest) -> AgentActionResponse:
         result = await run_agent_action(
             message=body.message,
             email=str(body.email),
+            thread_id=thread_id,
         )
         log_request_end(
             status=200,

@@ -11,3 +11,4 @@ langchain-openai==0.3.16
 langchain-chroma==0.2.3
 langchain-text-splitters==0.3.8
 langchain-core==0.3.58
+redis==5.2.1

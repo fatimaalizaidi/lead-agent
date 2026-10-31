@@ -18,6 +18,11 @@ from agent import (
     AgentActionResponse,
     run_agent_action,
 )
+from multiagent import (
+    MultiAgentRequest,
+    MultiAgentResponse,
+    run_multi_agent,
+)
 from config import get_settings
 from errors import (
     AppError,
@@ -161,9 +166,10 @@ app = FastAPI(
     title="Lead Analyzer",
     description=(
         "Classify lead priority and draft a suggested response with OpenAI + local RAG. "
-        "Also exposes POST /agent-action for autonomous tool-calling (quote, calendar, escalate)."
+        "Also exposes POST /agent-action for autonomous tool-calling and "
+        "POST /multi-agent for a LangGraph supervisor (Sales / Support / Router)."
     ),
-    version="1.6.0",
+    version="1.7.0",
 )
 app.add_middleware(RequestIdMiddleware)
 register_exception_handlers(app)
@@ -562,5 +568,64 @@ async def agent_action(body: AgentActionRequest) -> AgentActionResponse:
         )
         raise UpstreamError(
             "Agent action failed due to an upstream error.",
+            error_code="openai_unexpected",
+        ) from exc
+
+
+@app.post(
+    "/multi-agent",
+    response_model=MultiAgentResponse,
+    responses={
+        400: {"model": ErrorBody},
+        401: {"model": ErrorBody},
+        429: {"model": ErrorBody},
+        500: {"model": ErrorBody},
+        502: {"model": ErrorBody},
+    },
+)
+async def multi_agent(body: MultiAgentRequest) -> MultiAgentResponse:
+    """LangGraph supervisor that routes to Sales, Support, or Router specialists.
+
+    - **Sales** — tier/seat quotes + calendar tools
+    - **Support** — ChromaDB / company KB (SLA, refunds, docs)
+    - **Router** — sentiment + optional Slack/email workflow triggers (stub or webhook)
+
+    Existing ``/analyze-lead`` and ``/agent-action`` endpoints are unchanged.
+    """
+    started = time.perf_counter()
+    thread_id = resolve_thread_id(body.thread_id)
+    log_request_start(
+        path="/multi-agent",
+        email_domain=email_domain_only(str(body.email)),
+    )
+
+    try:
+        result = await run_multi_agent(
+            message=body.message,
+            email=str(body.email),
+            thread_id=thread_id,
+        )
+        log_request_end(
+            status=200,
+            total_ms=elapsed_ms(started),
+            needs_human_review=None,
+        )
+        return result
+    except AppError as exc:
+        log_request_end(
+            status=exc.status_code,
+            total_ms=elapsed_ms(started),
+            needs_human_review=None,
+        )
+        raise
+    except Exception as exc:
+        logger.exception("Multi-agent path failed unexpectedly")
+        log_request_end(
+            status=502,
+            total_ms=elapsed_ms(started),
+            needs_human_review=None,
+        )
+        raise UpstreamError(
+            "Multi-agent run failed due to an upstream error.",
             error_code="openai_unexpected",
         ) from exc

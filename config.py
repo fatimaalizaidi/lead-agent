@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     memory_ttl_seconds: int = 604800
     # Max role+content messages retained per thread (oldest dropped).
     memory_max_messages: int = 20
+    # Multi-agent Router webhooks (optional). Empty → stub notifications only.
+    slack_webhook_url: str = ""
+    email_webhook_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

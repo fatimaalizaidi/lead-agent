@@ -18,6 +18,7 @@ from errors import (
     UpstreamError,
 )
 from guardrails import sanitize_email, sanitize_message
+from memory import append_messages, history_for_openai
 from observability import elapsed_ms, log_llm
 from tools import TOOL_DEFINITIONS, execute_tool
 
@@ -29,6 +30,8 @@ MAX_AGENT_TOKENS = 256
 AGENT_SYSTEM_PROMPT = """You are an autonomous sales/support agent for Acme LeadDesk.
 You have tools for quotes, calendar availability, and human escalation.
 Choose tools based on the customer's intent. You may call multiple tools across turns.
+When earlier user/assistant turns are present, continue that conversation (reuse names,
+seat counts, and prior tool outcomes the customer already received).
 After tool results, reply with a short professional message (1–3 sentences).
 Do not invent prices, slots, or ticket ids — only use tool results.
 If the request is unrelated to your tools, say briefly what you can help with."""
@@ -39,6 +42,10 @@ class AgentActionRequest(BaseModel):
 
     message: str = Field(..., min_length=1, description="Customer / lead message text")
     email: EmailStr = Field(..., description="Customer email address")
+    thread_id: str | None = Field(
+        default=None,
+        description="Optional conversation thread id; server generates a UUID when omitted",
+    )
 
     @field_validator("message")
     @classmethod
@@ -49,6 +56,14 @@ class AgentActionRequest(BaseModel):
     @classmethod
     def sanitize_email_field(cls, value: EmailStr) -> str:
         return sanitize_email(str(value))
+
+    @field_validator("thread_id")
+    @classmethod
+    def strip_thread_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class ToolCallRecord(BaseModel):
@@ -73,6 +88,10 @@ class AgentActionResponse(BaseModel):
         ...,
         ge=1,
         description="Number of model turns used in the agent loop",
+    )
+    thread_id: str = Field(
+        ...,
+        description="Conversation thread id (echoed or newly generated)",
     )
 
 
@@ -173,11 +192,18 @@ async def _chat_with_tools(
     return completion
 
 
-async def run_agent_action(*, message: str, email: str) -> AgentActionResponse:
+async def run_agent_action(
+    *,
+    message: str,
+    email: str,
+    thread_id: str,
+) -> AgentActionResponse:
     """Multi-step tool-calling loop until a final message or iteration cap."""
     client = _get_async_client()
+    prior = history_for_openai(thread_id)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": AGENT_SYSTEM_PROMPT},
+        *prior,
         {
             "role": "user",
             "content": f"email: {email}\nmessage: {message}",
@@ -286,6 +312,15 @@ async def run_agent_action(*, message: str, email: str) -> AgentActionResponse:
                 "or escalating to human support."
             )
 
+    # Persist conversational turn only (not intermediate tool messages).
+    append_messages(
+        thread_id,
+        [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": agent_reply},
+        ],
+    )
+
     logger.info(
         "agent_done iterations={} tools_called={}",
         iterations,
@@ -296,4 +331,5 @@ async def run_agent_action(*, message: str, email: str) -> AgentActionResponse:
         agent_reply=agent_reply,
         tools_called=tools_called,
         iterations=iterations,
+        thread_id=thread_id,
     )

@@ -1,0 +1,6 @@
+# Dev / CI test dependencies (install on top of requirements.txt)
+-r requirements.txt
+pytest==8.3.5
+pytest-asyncio==0.25.3
+fakeredis==2.27.0
+# httpx is already in requirements.txt (used by the app + AsyncClient tests)

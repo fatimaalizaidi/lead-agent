@@ -13,6 +13,8 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+For offline API tests: `pip install -r requirements-dev.txt && pytest`. See **[docs/testing.md](./docs/testing.md)** (OpenAI, RAG, Redis, and Slack/email webhooks are mocked).
+
 ## API key
 
 Copy `.env.example` → `.env` and set your key (never commit `.env`). The same key is used for chat completions **and** embeddings:

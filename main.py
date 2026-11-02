@@ -495,6 +495,7 @@ async def analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
             status=200,
             total_ms=elapsed_ms(started),
             needs_human_review=needs_human_review,
+            path="/analyze-lead",
         )
         return AnalyzeLeadResponse(
             email=body.email,  # type: ignore[arg-type]
@@ -511,6 +512,8 @@ async def analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
             status=exc.status_code,
             total_ms=elapsed_ms(started),
             needs_human_review=None,
+            error_code=exc.error_code,
+            path="/analyze-lead",
         )
         raise
 
@@ -550,6 +553,7 @@ async def agent_action(body: AgentActionRequest) -> AgentActionResponse:
             status=200,
             total_ms=elapsed_ms(started),
             needs_human_review=None,
+            path="/agent-action",
         )
         return result
     except AppError as exc:
@@ -557,6 +561,8 @@ async def agent_action(body: AgentActionRequest) -> AgentActionResponse:
             status=exc.status_code,
             total_ms=elapsed_ms(started),
             needs_human_review=None,
+            error_code=exc.error_code,
+            path="/agent-action",
         )
         raise
     except Exception as exc:
@@ -565,6 +571,8 @@ async def agent_action(body: AgentActionRequest) -> AgentActionResponse:
             status=502,
             total_ms=elapsed_ms(started),
             needs_human_review=None,
+            error_code="openai_unexpected",
+            path="/agent-action",
         )
         raise UpstreamError(
             "Agent action failed due to an upstream error.",
@@ -609,6 +617,7 @@ async def multi_agent(body: MultiAgentRequest) -> MultiAgentResponse:
             status=200,
             total_ms=elapsed_ms(started),
             needs_human_review=None,
+            path="/multi-agent",
         )
         return result
     except AppError as exc:
@@ -616,6 +625,8 @@ async def multi_agent(body: MultiAgentRequest) -> MultiAgentResponse:
             status=exc.status_code,
             total_ms=elapsed_ms(started),
             needs_human_review=None,
+            error_code=exc.error_code,
+            path="/multi-agent",
         )
         raise
     except Exception as exc:
@@ -624,6 +635,8 @@ async def multi_agent(body: MultiAgentRequest) -> MultiAgentResponse:
             status=502,
             total_ms=elapsed_ms(started),
             needs_human_review=None,
+            error_code="openai_unexpected",
+            path="/multi-agent",
         )
         raise UpstreamError(
             "Multi-agent run failed due to an upstream error.",

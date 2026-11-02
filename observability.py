@@ -2,15 +2,22 @@
 
 Never log API keys, full prompts with secrets, or raw PII dumps.
 Request correlation uses ``X-Request-ID`` (incoming or generated UUID).
+
+Formats:
+- Human (default): ``time | LEVEL | request_id=... | module:func:line - message``
+- JSON (``LOG_JSON=true`` / ``1`` / ``yes``): one JSON object per line for collectors
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import sys
 import time
 import uuid
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -21,14 +28,65 @@ from starlette.responses import Response
 
 REQUEST_ID_HEADER = "X-Request-ID"
 _request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
+_metrics_var: ContextVar["RequestMetrics | None"] = ContextVar(
+    "request_metrics", default=None
+)
 
 ROOT = Path(__file__).resolve().parent
 LOG_DIR = ROOT / "logs"
+
+# Extra keys copied into JSON log objects when present (collector-friendly).
+_JSON_EXTRA_KEYS = (
+    "event",
+    "path",
+    "status",
+    "total_ms",
+    "llm_latency_ms",
+    "llm_calls",
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "error_code",
+    "needs_human_review",
+    "email_domain",
+    "model",
+    "chroma_latency_ms",
+    "hit_count",
+    "best_score",
+    "low_confidence",
+    "rag_unavailable",
+)
+
+
+@dataclass
+class RequestMetrics:
+    """Per-request accumulators for LLM latency and token usage."""
+
+    path: str | None = None
+    llm_latency_ms: float = 0.0
+    llm_calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    has_token_usage: bool = False
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 def get_request_id() -> str | None:
     """Current request id from context (None outside a request)."""
     return _request_id_var.get()
+
+
+def get_request_metrics() -> RequestMetrics | None:
+    """Current request metrics accumulator (None outside a request)."""
+    return _metrics_var.get()
+
+
+def begin_request_metrics(*, path: str | None = None) -> RequestMetrics:
+    """Reset / start metrics for the active request (middleware or endpoint)."""
+    metrics = RequestMetrics(path=path)
+    _metrics_var.set(metrics)
+    return metrics
 
 
 def email_domain_only(email: str | None) -> str:
@@ -38,8 +96,47 @@ def email_domain_only(email: str | None) -> str:
     return email.rsplit("@", 1)[-1].strip().lower() or "-"
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = (os.getenv(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
 def _patch_record(record: dict[str, Any]) -> None:
     record["extra"].setdefault("request_id", _request_id_var.get() or "-")
+
+
+def _build_json_payload(record: dict[str, Any]) -> dict[str, Any]:
+    """Collector-friendly flat JSON fields (request_id + event metrics)."""
+    extra = record["extra"]
+    payload: dict[str, Any] = {
+        "timestamp": record["time"].strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+        "level": record["level"].name,
+        "request_id": extra.get("request_id", "-"),
+        "logger": record["name"],
+        "function": record["function"],
+        "line": record["line"],
+        "message": record["message"],
+    }
+    for key in _JSON_EXTRA_KEYS:
+        if key in extra:
+            payload[key] = extra[key]
+    if record["exception"] is not None:
+        payload["exception"] = str(record["exception"])
+    return payload
+
+
+def _json_sink(message: Any) -> None:
+    """Emit one JSON object per log record to stderr."""
+    sys.stderr.write(json.dumps(_build_json_payload(message.record), default=str) + "\n")
+
+
+def _json_format(record: dict[str, Any]) -> str:
+    """loguru ``format=`` callable for rotating file sinks (must end with newline)."""
+    # loguru evaluates the returned template against the record; embed prebuilt JSON.
+    record["extra"]["_json"] = json.dumps(_build_json_payload(record), default=str)
+    return "{extra[_json]}\n"
 
 
 class _InterceptHandler(logging.Handler):
@@ -59,27 +156,70 @@ class _InterceptHandler(logging.Handler):
         )
 
 
-def setup_logging(*, log_to_file: bool = True) -> None:
-    """Configure loguru: stderr + optional rotating ``logs/app.log``."""
+def _record_llm_into_metrics(
+    *,
+    llm_latency_ms: float,
+    prompt_tokens: int | None,
+    completion_tokens: int | None,
+    total_tokens: int | None,
+) -> None:
+    metrics = _metrics_var.get()
+    if metrics is None:
+        return
+    metrics.llm_latency_ms = round(metrics.llm_latency_ms + llm_latency_ms, 1)
+    metrics.llm_calls += 1
+    if prompt_tokens is not None:
+        metrics.prompt_tokens += int(prompt_tokens)
+        metrics.has_token_usage = True
+    if completion_tokens is not None:
+        metrics.completion_tokens += int(completion_tokens)
+        metrics.has_token_usage = True
+    if total_tokens is not None:
+        metrics.total_tokens += int(total_tokens)
+        metrics.has_token_usage = True
+
+
+def setup_logging(*, log_to_file: bool = True, log_json: bool | None = None) -> None:
+    """Configure loguru: stderr + optional rotating ``logs/app.log``.
+
+    Set ``LOG_JSON=true`` (or pass ``log_json=True``) for one JSON object per line.
+    Default remains human-readable key=value lines.
+    """
+    use_json = _env_flag("LOG_JSON") if log_json is None else log_json
+    level = (os.getenv("LOG_LEVEL") or "INFO").strip().upper() or "INFO"
+
     logger.remove()
     logger.configure(patcher=_patch_record)
 
-    fmt = (
-        "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
-        "request_id={extra[request_id]} | {name}:{function}:{line} - {message}"
-    )
-    logger.add(sys.stderr, format=fmt, level="INFO", enqueue=False)
-
-    if log_to_file:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
-        logger.add(
-            LOG_DIR / "app.log",
-            format=fmt,
-            level="INFO",
-            rotation="10 MB",
-            retention="7 days",
-            enqueue=False,
+    if use_json:
+        logger.add(_json_sink, level=level, enqueue=False)
+        if log_to_file:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            logger.add(
+                LOG_DIR / "app.log",
+                format=_json_format,
+                level=level,
+                rotation="10 MB",
+                retention="7 days",
+                enqueue=False,
+            )
+    else:
+        fmt = (
+            "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
+            "request_id={extra[request_id]} | {name}:{function}:{line} - {message}"
         )
+        logger.add(sys.stderr, format=fmt, level=level, enqueue=False)
+
+        if log_to_file:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            logger.add(
+                LOG_DIR / "app.log",
+                format=fmt,
+                level=level,
+                rotation="10 MB",
+                retention="7 days",
+                enqueue=False,
+            )
 
     # Capture stdlib loggers used elsewhere in the app.
     logging.basicConfig(handlers=[_InterceptHandler()], level=logging.INFO, force=True)
@@ -91,10 +231,17 @@ def elapsed_ms(started: float) -> float:
 
 
 def log_request_start(*, path: str, email_domain: str | None = None) -> None:
-    logger.info(
+    metrics = _metrics_var.get()
+    if metrics is None:
+        metrics = begin_request_metrics(path=path)
+    else:
+        metrics.path = path
+
+    domain = email_domain or "-"
+    logger.bind(event="request_start", path=path, email_domain=domain).info(
         "request_start path={} email_domain={}",
         path,
-        email_domain or "-",
+        domain,
     )
 
 
@@ -107,7 +254,14 @@ def log_rag(
     rag_unavailable: bool = False,
 ) -> None:
     score_str = f"{best_score:.4f}" if best_score is not None else "none"
-    logger.info(
+    logger.bind(
+        event="rag",
+        chroma_latency_ms=chroma_latency_ms,
+        hit_count=hit_count,
+        best_score=score_str,
+        low_confidence=low_confidence,
+        rag_unavailable=rag_unavailable,
+    ).info(
         "rag chroma_latency_ms={} hit_count={} best_score={} low_confidence={} "
         "rag_unavailable={}",
         chroma_latency_ms,
@@ -126,7 +280,20 @@ def log_llm(
     completion_tokens: int | None,
     total_tokens: int | None,
 ) -> None:
-    logger.info(
+    _record_llm_into_metrics(
+        llm_latency_ms=llm_latency_ms,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+    )
+    logger.bind(
+        event="llm",
+        model=model,
+        llm_latency_ms=llm_latency_ms,
+        prompt_tokens=prompt_tokens if prompt_tokens is not None else "-",
+        completion_tokens=completion_tokens if completion_tokens is not None else "-",
+        total_tokens=total_tokens if total_tokens is not None else "-",
+    ).info(
         "llm model={} llm_latency_ms={} prompt_tokens={} completion_tokens={} "
         "total_tokens={}",
         model,
@@ -142,22 +309,69 @@ def log_request_end(
     status: int,
     total_ms: float,
     needs_human_review: bool | None = None,
+    error_code: str | None = None,
+    path: str | None = None,
 ) -> None:
+    """Log request completion with latency, aggregated LLM metrics, and optional error."""
+    metrics = _metrics_var.get()
+    resolved_path = path or (metrics.path if metrics else None) or "-"
+    llm_latency = round(metrics.llm_latency_ms, 1) if metrics else 0.0
+    llm_calls = metrics.llm_calls if metrics else 0
+    prompt_tokens: int | str
+    completion_tokens: int | str
+    total_tokens: int | str
+    if metrics and metrics.has_token_usage:
+        prompt_tokens = metrics.prompt_tokens
+        completion_tokens = metrics.completion_tokens
+        total_tokens = metrics.total_tokens
+    else:
+        prompt_tokens = "-"
+        completion_tokens = "-"
+        total_tokens = "-"
+
     review = needs_human_review if needs_human_review is not None else "-"
-    logger.info(
-        "request_end status={} total_ms={} needs_human_review={}",
+    code = error_code if error_code is not None else "-"
+
+    bound_fields: dict[str, Any] = {
+        "event": "request_end",
+        "path": resolved_path,
+        "status": status,
+        "total_ms": total_ms,
+        "llm_latency_ms": llm_latency,
+        "llm_calls": llm_calls,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "needs_human_review": review,
+        "error_code": code,
+    }
+    logger.bind(**bound_fields).info(
+        "request_end path={} status={} total_ms={} llm_latency_ms={} llm_calls={} "
+        "prompt_tokens={} completion_tokens={} total_tokens={} "
+        "needs_human_review={} error_code={}",
+        resolved_path,
         status,
         total_ms,
+        llm_latency,
+        llm_calls,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
         review,
+        code,
     )
 
 
 def log_error(*, error_code: str, status: int | None = None) -> None:
     """Structured error line — error_code only, no stack secrets in the message."""
     if status is not None:
-        logger.warning("error error_code={} status={}", error_code, status)
+        logger.bind(event="error", error_code=error_code, status=status).warning(
+            "error error_code={} status={}", error_code, status
+        )
     else:
-        logger.warning("error error_code={}", error_code)
+        logger.bind(event="error", error_code=error_code).warning(
+            "error error_code={}", error_code
+        )
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -167,6 +381,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         incoming = (request.headers.get(REQUEST_ID_HEADER) or "").strip()
         request_id = incoming or str(uuid.uuid4())
         token = _request_id_var.set(request_id)
+        metrics_token = _metrics_var.set(RequestMetrics(path=request.url.path))
         request.state.request_id = request_id
         try:
             response = await call_next(request)
@@ -174,3 +389,4 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             _request_id_var.reset(token)
+            _metrics_var.reset(metrics_token)

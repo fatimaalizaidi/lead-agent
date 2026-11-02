@@ -173,7 +173,12 @@ Restart uvicorn after changing `main.py` / `rag.py` / `config.py` / `guardrails.
 
 ## Observability
 
-Structured logging via **loguru** (`observability.py`). Logs go to **stderr** and rotating **`logs/app.log`** (`logs/` is gitignored). Every line includes `request_id=...` from context.
+Structured logging via **loguru** (`observability.py`). Logs go to **stderr** and rotating **`logs/app.log`** (`logs/` is gitignored). Every line includes `request_id=...` from context. Applies to **`/analyze-lead`**, **`/agent-action`**, and **`/multi-agent`**.
+
+### Formats
+
+- **Human** (default): `time | LEVEL | request_id=… | module:func:line - message`
+- **JSON** (collectors): set `LOG_JSON=true` (also `1` / `yes` / `on`) for one flat JSON object per line. Optional `LOG_LEVEL` (default `INFO`).
 
 ### `X-Request-ID`
 
@@ -195,8 +200,8 @@ curl -s -D - -X POST "http://127.0.0.1:8000/analyze-lead" \
 |-------|--------|
 | `request_start` | path, email_domain (domain only — not full email/message) |
 | `rag` | chroma_latency_ms, hit_count, best_score, low_confidence, rag_unavailable |
-| `llm` | model, llm_latency_ms, prompt_tokens, completion_tokens, total_tokens |
-| `request_end` | status, total_ms, needs_human_review |
+| `llm` | model, llm_latency_ms, prompt_tokens, completion_tokens, total_tokens (per call) |
+| `request_end` | path, status, total_ms, llm_latency_ms (sum), llm_calls, tokens (sum), needs_human_review, error_code |
 | `error` | error_code, status (no stack secrets / API keys / prompts) |
 
 Never logged: `OPENAI_API_KEY`, full prompts, message bodies, or raw upstream error payloads.
@@ -207,10 +212,10 @@ Never logged: `OPENAI_API_KEY`, full prompts, message bodies, or raw upstream er
 ... | INFO | request_id=demo-n8n-001 | ... - request_start path=/analyze-lead email_domain=acme.com
 ... | INFO | request_id=demo-n8n-001 | ... - rag chroma_latency_ms=42.3 hit_count=2 best_score=0.8123 low_confidence=False rag_unavailable=False
 ... | INFO | request_id=demo-n8n-001 | ... - llm model=gpt-4o-mini llm_latency_ms=810.5 prompt_tokens=420 completion_tokens=55 total_tokens=475
-... | INFO | request_id=demo-n8n-001 | ... - request_end status=200 total_ms=870.1 needs_human_review=False
+... | INFO | request_id=demo-n8n-001 | ... - request_end path=/analyze-lead status=200 total_ms=870.1 llm_latency_ms=810.5 llm_calls=1 prompt_tokens=420 completion_tokens=55 total_tokens=475 needs_human_review=False error_code=-
 ```
 
-Restart uvicorn after changing `observability.py` / `main.py` / `errors.py` (with `--reload`, saving those files is enough). Install the new dependency once: `pip install -r requirements.txt`.
+More detail: **[docs/observability.md](./docs/observability.md)**. Restart uvicorn after changing `observability.py` / `main.py` / `errors.py`.
 
 ## Deploy / Going live (Render)
 

@@ -17,23 +17,23 @@ from tests.openai_fakes import (
 
 
 @pytest.mark.asyncio
-async def test_multi_agent_support_route(
+async def test_multi_agent_knowledge_route(
     client: AsyncClient,
     fake_redis,
     mock_rag_multiagent,
 ) -> None:
-    """Supervisor → support → finish; RAG + OpenAI mocked."""
-    supervisor_to_support = completion_with_json(
-        {"next": "support", "reason": "policy question about refunds"}
+    """Supervisor → knowledge → finish; RAG + OpenAI mocked."""
+    supervisor_to_knowledge = completion_with_json(
+        {"next": "knowledge", "reason": "policy question about refunds"}
     )
-    support_reply = completion_with_content(
+    knowledge_reply = completion_with_content(
         "Annual plans can be refunded within 14 days per our refund policy."
     )
     supervisor_finish = completion_with_json(
-        {"next": "finish", "reason": "support already answered"}
+        {"next": "finish", "reason": "knowledge already answered"}
     )
     openai_client = make_async_openai_client(
-        [supervisor_to_support, support_reply, supervisor_finish]
+        [supervisor_to_knowledge, knowledge_reply, supervisor_finish]
     )
 
     with patch("multiagent._get_async_client", return_value=openai_client):
@@ -43,7 +43,7 @@ async def test_multi_agent_support_route(
     body = resp.json()
     assert body["email"] == SAMPLE_MULTI["email"]
     assert "refund" in body["agent_reply"].lower()
-    assert body["route_trace"] == ["support"]
+    assert body["route_trace"] == ["knowledge"]
     assert body["knowledge_sources"] == ["Pricing Plans"]
     assert body["hops"] >= 1
     assert isinstance(body["thread_id"], str) and body["thread_id"]
@@ -96,15 +96,15 @@ async def test_multi_agent_sales_with_quote_tool(
 
 
 @pytest.mark.asyncio
-async def test_multi_agent_router_stubs_webhooks(
+async def test_multi_agent_escalation_stubs_webhooks(
     client: AsyncClient,
     fake_redis,
 ) -> None:
-    """Router tools use stubs when webhook URLs are empty — no live Slack/email."""
-    supervisor_to_router = completion_with_json(
-        {"next": "router", "reason": "angry customer needs escalation"}
+    """Escalation tools use stubs when webhook URLs are empty — no live Slack/email."""
+    supervisor_to_escalation = completion_with_json(
+        {"next": "escalation", "reason": "angry customer needs escalation"}
     )
-    router_tools = completion_with_tool_calls(
+    escalation_tools = completion_with_tool_calls(
         [
             (
                 "call_slack_1",
@@ -125,14 +125,14 @@ async def test_multi_agent_router_stubs_webhooks(
             ),
         ]
     )
-    router_reply = completion_with_content(
+    escalation_reply = completion_with_content(
         "I've flagged this for Slack and email follow-up. A human will reach out shortly."
     )
     supervisor_finish = completion_with_json(
         {"next": "finish", "reason": "escalation done"}
     )
     openai_client = make_async_openai_client(
-        [supervisor_to_router, router_tools, router_reply, supervisor_finish]
+        [supervisor_to_escalation, escalation_tools, escalation_reply, supervisor_finish]
     )
 
     # Guard against accidental live HTTP even if env is mis-set.
@@ -151,7 +151,7 @@ async def test_multi_agent_router_stubs_webhooks(
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["route_trace"] == ["router"]
+    assert body["route_trace"] == ["escalation"]
     assert body["sentiment"] == "urgent"
     assert len(body["notifications"]) == 2
     channels = {n["channel"] for n in body["notifications"]}
@@ -162,7 +162,7 @@ async def test_multi_agent_router_stubs_webhooks(
 
 
 @pytest.mark.asyncio
-async def test_multi_agent_router_mocked_webhook_urls(
+async def test_multi_agent_escalation_mocked_webhook_urls(
     client: AsyncClient,
     fake_redis,
     monkeypatch,
@@ -174,10 +174,10 @@ async def test_multi_agent_router_mocked_webhook_urls(
 
     get_settings.cache_clear()
 
-    supervisor_to_router = completion_with_json(
-        {"next": "router", "reason": "notify ops"}
+    supervisor_to_escalation = completion_with_json(
+        {"next": "escalation", "reason": "notify ops"}
     )
-    router_tools = completion_with_tool_calls(
+    escalation_tools = completion_with_tool_calls(
         [
             (
                 "call_slack_2",
@@ -186,12 +186,12 @@ async def test_multi_agent_router_mocked_webhook_urls(
             )
         ]
     )
-    router_reply = completion_with_content("Ops has been notified on Slack.")
+    escalation_reply = completion_with_content("Ops has been notified on Slack.")
     supervisor_finish = completion_with_json(
         {"next": "finish", "reason": "done"}
     )
     openai_client = make_async_openai_client(
-        [supervisor_to_router, router_tools, router_reply, supervisor_finish]
+        [supervisor_to_escalation, escalation_tools, escalation_reply, supervisor_finish]
     )
 
     mock_resp = MagicMock()
@@ -210,7 +210,7 @@ async def test_multi_agent_router_mocked_webhook_urls(
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["route_trace"] == ["router"]
+    assert body["route_trace"] == ["escalation"]
     assert len(body["notifications"]) == 1
     assert body["notifications"][0]["channel"] == "slack"
     assert body["notifications"][0]["stub"] is False

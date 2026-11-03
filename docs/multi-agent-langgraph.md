@@ -4,10 +4,10 @@
 
 | Agent | Role |
 | --- | --- |
-| **Supervisor** | Classifies intent → `sales` / `support` / `router` / `finish` (max 4 hops) |
-| **Sales** | Tier/seat quotes + demo calendar (`calculate_custom_quote`, `check_calendar_availability`) |
-| **Support** | Queries local ChromaDB (LangChain RAG) for SLA / refunds / onboarding / docs |
-| **Router** | Sentiment + triggers Slack/email workflows (`trigger_slack_workflow`, `trigger_email_workflow`) |
+| **Supervisor** | Analyzes incoming intent and delegates → `sales` / `knowledge` / `escalation` / `finish` (max 4 hops) |
+| **Sales/Pricing** | Seat and tier pricing function calls (`calculate_custom_quote`; demo slots via `check_calendar_availability`) |
+| **Knowledge** | Queries local ChromaDB for SLAs, policies, and technical documentation |
+| **Escalation** | High-priority Slack/email dispatch (`trigger_slack_workflow`, `trigger_email_workflow`) |
 
 **CrewAI is not used** — LangGraph fits the existing LangChain RAG stack. `/analyze-lead` and `/agent-action` stay unchanged.
 
@@ -29,7 +29,7 @@
 {
   "email": "alex@acme.com",
   "agent_reply": "…",
-  "route_trace": ["sales", "support"],
+  "route_trace": ["sales", "knowledge"],
   "tools_called": [],
   "knowledge_sources": ["Service Level Agreement (SLA)"],
   "sentiment": null,
@@ -39,7 +39,7 @@
 }
 ```
 
-## Router webhooks
+## Escalation webhooks
 
 Set optional env vars (see `.env.example`):
 
@@ -53,17 +53,17 @@ Wire these to n8n webhooks if you want real Slack/email branches.
 ## Example curls
 
 ```bash
-# Sales
+# Sales/Pricing
 curl -sS http://127.0.0.1:8000/multi-agent \
   -H 'Content-Type: application/json' \
   -d '{"email":"alex@acme.com","message":"Quote for 12 Growth seats"}'
 
-# Support (KB)
+# Knowledge (ChromaDB)
 curl -sS http://127.0.0.1:8000/multi-agent \
   -H 'Content-Type: application/json' \
   -d '{"email":"alex@acme.com","message":"What is your uptime SLA?"}'
 
-# Router (negative / urgent)
+# Escalation (high priority)
 curl -sS http://127.0.0.1:8000/multi-agent \
   -H 'Content-Type: application/json' \
   -d '{"email":"alex@acme.com","message":"This is urgent — your billing is broken and I want a human NOW"}'

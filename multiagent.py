@@ -1,4 +1,4 @@
-"""LangGraph multi-agent supervisor: Sales / Support / Router specialists."""
+"""LangGraph multi-agent supervisor: Sales/Pricing, Knowledge, Escalation."""
 
 from __future__ import annotations
 
@@ -35,30 +35,31 @@ MAX_SUPERVISOR_HOPS = 4
 MAX_SALES_ITERATIONS = 4
 MAX_TOKENS = 256
 
-AgentName = Literal["sales", "support", "router", "finish"]
+AgentName = Literal["sales", "knowledge", "escalation", "finish"]
 
-SUPERVISOR_PROMPT = """You are the Supervisor for Acme LeadDesk multi-agent support.
-Route the customer message to exactly one specialist (or finish):
-- sales: pricing, quotes, tiers, seats, demos, calendar scheduling
-- support: product policy questions (SLA, refunds, onboarding, support hours, docs)
-- router: anger/urgency/churn risk, escalation, or requests to notify Slack/email teams
+SUPERVISOR_PROMPT = """You are the Supervisor for Acme LeadDesk.
+Analyze the incoming intent and delegate to exactly one specialist (or finish):
+- sales: Sales/Pricing Agent — seat counts, tiers, quotes, demos, calendar
+- knowledge: Knowledge Agent — SLAs, refunds, policies, onboarding, support hours, technical docs
+- escalation: Escalation Agent — high-priority, angry, urgent, or churn-risk cases that need Slack or email dispatch
 - finish: a clear final reply already exists and no more specialists are needed
-Return JSON only: {"next":"sales"|"support"|"router"|"finish","reason":"one short clause"}."""
+Return JSON only: {"next":"sales"|"knowledge"|"escalation"|"finish","reason":"one short clause"}."""
 
-SALES_PROMPT = """You are the Sales Agent for Acme LeadDesk.
-You handle tier/seat quotes and demo scheduling via tools.
-Use calculate_custom_quote and/or check_calendar_availability when needed.
+SALES_PROMPT = """You are the Sales/Pricing Agent for Acme LeadDesk.
+Execute seat and tier pricing with calculate_custom_quote (starter / growth / enterprise).
+Use check_calendar_availability only when the customer wants a demo or call.
 After tools, reply in 1–3 short professional sentences. Do not invent prices or slots."""
 
-SUPPORT_PROMPT = """You are the Support Agent for Acme LeadDesk.
-Answer using COMPANY KNOWLEDGE only. If knowledge is empty or irrelevant, say briefly
+KNOWLEDGE_PROMPT = """You are the Knowledge Agent for Acme LeadDesk.
+Answer from COMPANY KNOWLEDGE retrieved from the local knowledge base (SLAs, policies,
+onboarding, support hours, technical docs). If knowledge is empty or irrelevant, say briefly
 what you do not know and suggest sales or escalation. 1–3 short sentences. No invented policy numbers."""
 
-ROUTER_PROMPT = """You are the Router Agent for Acme LeadDesk.
-Analyze sentiment (positive|neutral|negative|urgent) and decide whether to notify teams.
+ESCALATION_PROMPT = """You are the Escalation Agent for Acme LeadDesk.
+Handle high-priority dispatch. Analyze sentiment (positive|neutral|negative|urgent).
 Use trigger_slack_workflow and/or trigger_email_workflow when the customer is angry,
 urgent, at churn risk, or explicitly asks for human/ops follow-up.
-Then reply in 1–2 short sentences confirming next steps."""
+Then reply in 1–2 short sentences confirming the Slack or email next step."""
 
 
 class MultiAgentRequest(BaseModel):
@@ -223,7 +224,7 @@ def _parse_tool_arguments(raw: str | None) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Router notification stubs (optional real webhooks via env)
+# Escalation notification stubs (optional real webhooks via env)
 # ---------------------------------------------------------------------------
 SALES_TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
@@ -263,7 +264,7 @@ SALES_TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
 ]
 
-ROUTER_TOOL_DEFINITIONS: list[dict[str, Any]] = [
+ESCALATION_TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
@@ -389,7 +390,7 @@ def trigger_email_workflow(*, subject: str, body: str, sentiment: str) -> dict[s
         }
 
 
-ROUTER_TOOL_HANDLERS = {
+ESCALATION_TOOL_HANDLERS = {
     "trigger_slack_workflow": trigger_slack_workflow,
     "trigger_email_workflow": trigger_email_workflow,
 }
@@ -406,16 +407,16 @@ def _execute_sales_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     return execute_tool(name, arguments)
 
 
-def _execute_router_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    handler = ROUTER_TOOL_HANDLERS.get(name)
+def _execute_escalation_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    handler = ESCALATION_TOOL_HANDLERS.get(name)
     if handler is None:
-        return {"ok": False, "error": f"Unknown router tool: {name}"}
+        return {"ok": False, "error": f"Unknown escalation tool: {name}"}
     try:
         return handler(**arguments)
     except TypeError:
         return {"ok": False, "error": f"Invalid arguments for {name}"}
     except Exception:
-        logger.exception("router tool failed name={}", name)
+        logger.exception("escalation tool failed name={}", name)
         return {"ok": False, "error": f"Tool {name} failed unexpectedly"}
 
 
@@ -455,10 +456,10 @@ async def supervisor_node(state: GraphState) -> dict[str, Any]:
         try:
             parsed = json.loads(raw)
             candidate = str(parsed.get("next") or "").strip().lower()
-            if candidate in ("sales", "support", "router", "finish"):
+            if candidate in ("sales", "knowledge", "escalation", "finish"):
                 next_agent = candidate  # type: ignore[assignment]
         except json.JSONDecodeError:
-            next_agent = "support"
+            next_agent = "knowledge"
 
     # Avoid immediately re-calling the same specialist in a tight loop.
     called = state.get("agents_called") or []
@@ -470,7 +471,7 @@ async def supervisor_node(state: GraphState) -> dict[str, Any]:
 
 
 async def sales_node(state: GraphState) -> dict[str, Any]:
-    """Sales specialist — tier/seat quotes + calendar tools."""
+    """Sales/Pricing Agent — seat and tier quotes, plus demo calendar when asked."""
     client = _get_async_client()
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SALES_PROMPT},
@@ -549,13 +550,13 @@ async def sales_node(state: GraphState) -> dict[str, Any]:
     }
 
 
-async def support_node(state: GraphState) -> dict[str, Any]:
-    """Support specialist — ChromaDB / company KB via LangChain RAG."""
+async def knowledge_node(state: GraphState) -> dict[str, Any]:
+    """Knowledge Agent — ChromaDB lookup for SLAs, policies, and technical docs."""
     chunks: list[dict[str, str]] = []
     try:
         chunks, _score = retrieve_context(state["message"])
     except Exception:
-        logger.exception("support RAG retrieve failed")
+        logger.exception("knowledge RAG retrieve failed")
         chunks = []
 
     kb_block = format_context_for_prompt(chunks)
@@ -564,7 +565,7 @@ async def support_node(state: GraphState) -> dict[str, Any]:
     completion = await _chat(
         client,
         [
-            {"role": "system", "content": SUPPORT_PROMPT},
+            {"role": "system", "content": KNOWLEDGE_PROMPT},
             *history_for_openai(state["thread_id"]),
             {
                 "role": "user",
@@ -584,18 +585,18 @@ async def support_node(state: GraphState) -> dict[str, Any]:
             "Ask about SLA, refunds, onboarding, or support hours — or request a human."
         )
     return {
-        "agents_called": ["support"],
+        "agents_called": ["knowledge"],
         "knowledge_sources": sources,
         "agent_reply": agent_reply,
         "next_agent": "supervisor",
     }
 
 
-async def router_node(state: GraphState) -> dict[str, Any]:
-    """Router specialist — sentiment + Slack/Email workflow triggers."""
+async def escalation_node(state: GraphState) -> dict[str, Any]:
+    """Escalation Agent — high-priority Slack and email dispatch."""
     client = _get_async_client()
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": ROUTER_PROMPT},
+        {"role": "system", "content": ESCALATION_PROMPT},
         *history_for_openai(state["thread_id"]),
         {
             "role": "user",
@@ -612,7 +613,7 @@ async def router_node(state: GraphState) -> dict[str, Any]:
     agent_reply = ""
 
     for _ in range(MAX_SALES_ITERATIONS):
-        completion = await _chat(client, messages, tools=ROUTER_TOOL_DEFINITIONS)
+        completion = await _chat(client, messages, tools=ESCALATION_TOOL_DEFINITIONS)
         msg = completion.choices[0].message if completion.choices else None
         if msg is None:
             break
@@ -643,7 +644,7 @@ async def router_node(state: GraphState) -> dict[str, Any]:
             if args.get("_parse_error"):
                 result = {"ok": False, "error": "Could not parse tool arguments as JSON"}
             else:
-                result = _execute_router_tool(tc.function.name, call_args)
+                result = _execute_escalation_tool(tc.function.name, call_args)
             tools_called.append(
                 {"name": tc.function.name, "arguments": call_args, "result": result}
             )
@@ -677,7 +678,7 @@ async def router_node(state: GraphState) -> dict[str, Any]:
         agent_reply = "Our team has been notified where needed. Someone will follow up shortly."
 
     return {
-        "agents_called": ["router"],
+        "agents_called": ["escalation"],
         "tools_called": tools_called,
         "notifications": notifications,
         "sentiment": sentiment,
@@ -688,7 +689,7 @@ async def router_node(state: GraphState) -> dict[str, Any]:
 
 def _route_after_supervisor(state: GraphState) -> str:
     nxt = (state.get("next_agent") or "finish").strip().lower()
-    if nxt in ("sales", "support", "router"):
+    if nxt in ("sales", "knowledge", "escalation"):
         return nxt
     return "finish"
 
@@ -698,8 +699,8 @@ def build_multi_agent_graph():
     graph = StateGraph(GraphState)
     graph.add_node("supervisor", supervisor_node)
     graph.add_node("sales", sales_node)
-    graph.add_node("support", support_node)
-    graph.add_node("router", router_node)
+    graph.add_node("knowledge", knowledge_node)
+    graph.add_node("escalation", escalation_node)
 
     graph.add_edge(START, "supervisor")
     graph.add_conditional_edges(
@@ -707,14 +708,14 @@ def build_multi_agent_graph():
         _route_after_supervisor,
         {
             "sales": "sales",
-            "support": "support",
-            "router": "router",
+            "knowledge": "knowledge",
+            "escalation": "escalation",
             "finish": END,
         },
     )
     graph.add_edge("sales", "supervisor")
-    graph.add_edge("support", "supervisor")
-    graph.add_edge("router", "supervisor")
+    graph.add_edge("knowledge", "supervisor")
+    graph.add_edge("escalation", "supervisor")
     return graph.compile()
 
 

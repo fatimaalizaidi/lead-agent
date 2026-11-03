@@ -167,7 +167,8 @@ app = FastAPI(
     description=(
         "Classify lead priority and draft a suggested response with OpenAI + local RAG. "
         "Also exposes POST /agent-action for autonomous tool-calling and "
-        "POST /multi-agent for a LangGraph supervisor (Sales / Support / Router)."
+        "POST /multi-agent for a LangGraph supervisor "
+        "(Sales/Pricing, Knowledge, Escalation)."
     ),
     version="1.7.0",
 )
@@ -592,11 +593,11 @@ async def agent_action(body: AgentActionRequest) -> AgentActionResponse:
     },
 )
 async def multi_agent(body: MultiAgentRequest) -> MultiAgentResponse:
-    """LangGraph supervisor that routes to Sales, Support, or Router specialists.
+    """LangGraph supervisor that analyzes intent and delegates to specialists.
 
-    - **Sales** — tier/seat quotes + calendar tools
-    - **Support** — ChromaDB / company KB (SLA, refunds, docs)
-    - **Router** — sentiment + optional Slack/email workflow triggers (stub or webhook)
+    - **Sales/Pricing** — seat and tier quotes (`calculate_custom_quote`) plus calendar
+    - **Knowledge** — ChromaDB for SLAs, policies, and technical documentation
+    - **Escalation** — high-priority Slack/email dispatch (stub or webhook)
 
     Existing ``/analyze-lead`` and ``/agent-action`` endpoints are unchanged.
     """

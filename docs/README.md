@@ -5,6 +5,8 @@ User-facing notes copied from Cursor Project Context so Claude Desktop (and anyo
 | Guide | Description |
 |-------|-------------|
 | [agent-tools.md](./agent-tools.md) | Agent tool-calling (`POST /agent-action`) |
+| [conversation-memory.md](./conversation-memory.md) | Redis multi-turn memory (`thread_id`) |
+| [multi-agent-langgraph.md](./multi-agent-langgraph.md) | LangGraph supervisor (Sales/Pricing, Knowledge, Escalation) |
 | [deploy-going-live.md](./deploy-going-live.md) | Deploy / going live on Render (overview) |
 | [lead-analyzer/DEPLOY.md](./lead-analyzer/DEPLOY.md) | Full Render deploy walkthrough for n8n |
 | [docker-compose.md](./docker-compose.md) | Docker Compose for the FastAPI backend |
@@ -16,5 +18,6 @@ User-facing notes copied from Cursor Project Context so Claude Desktop (and anyo
 | [production-hardening.md](./production-hardening.md) | Production hardening notes |
 | [pydantic-strict-json-plan.md](./pydantic-strict-json-plan.md) | Stricter Pydantic + JSON plan |
 | [rag-upgrade.md](./rag-upgrade.md) | ChromaDB + LangChain RAG upgrade |
+| [testing.md](./testing.md) | Offline pytest + httpx API tests (mocked OpenAI / RAG / Redis / webhooks) |
 
 App setup and API usage live in the [root README](../README.md).

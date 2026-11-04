@@ -1,4 +1,4 @@
-# Lead-agent backend only (FastAPI + local Chroma). n8n stays outside this stack.
+# Lead-agent backend only (FastAPI + local Chroma + Redis memory). n8n stays outside this stack.
 #
 # Prerequisites: copy `.env.example` → `.env` and set OPENAI_API_KEY (never commit `.env`).
 #
@@ -6,10 +6,24 @@
 #   curl -s http://localhost:8000/health
 #
 # Override host port: LEAD_AGENT_PORT=8080 docker compose up -d
-# Tear down (keeps Chroma volume): docker compose down
-# Tear down + wipe Chroma: docker compose down -v
+# Tear down (keeps volumes): docker compose down
+# Tear down + wipe Chroma/Redis/logs: docker compose down -v
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: lead-redis
+    volumes:
+      - redis_data:/data
+    # No host port published by default (API reaches Redis on the compose network).
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
   lead-analyzer:
     build: .
     container_name: lead-analyzer
@@ -24,10 +38,17 @@ services:
       RAG_K: ${RAG_K:-3}
       RAG_SCORE_THRESHOLD: ${RAG_SCORE_THRESHOLD:-1.2}
       OPENAI_TIMEOUT_SECONDS: ${OPENAI_TIMEOUT_SECONDS:-30}
+      # Conversation memory — talk to the compose Redis service
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      MEMORY_TTL_SECONDS: ${MEMORY_TTL_SECONDS:-604800}
+      MEMORY_MAX_MESSAGES: ${MEMORY_MAX_MESSAGES:-20}
     volumes:
       # rag.py persists under /app/data/chroma (CHROMA_DIR)
       - chroma_data:/app/data/chroma
       - lead_logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -45,3 +66,4 @@ services:
 volumes:
   chroma_data:
   lead_logs:
+  redis_data:

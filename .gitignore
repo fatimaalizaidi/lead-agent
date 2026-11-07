@@ -11,4 +11,5 @@ __pycache__/
 data/
 data/chroma/
 logs/
+models/
 .DS_Store

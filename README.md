@@ -24,7 +24,7 @@ cp .env.example .env
 # edit .env: OPENAI_API_KEY=sk-...
 ```
 
-`config.Settings` (pydantic-settings) loads `OPENAI_API_KEY` from the environment or `.env`. You can still `export OPENAI_API_KEY=...` if you prefer. Optional: `OPENAI_MODEL` (default `gpt-4o-mini`), `RAG_K` (default `3`), `RAG_SCORE_THRESHOLD` (default `1.2`, Chroma L2 distance — lower is better), `OPENAI_TIMEOUT_SECONDS` (default `30`). The key is never logged or returned in API responses.
+`config.Settings` (pydantic-settings) loads `OPENAI_API_KEY` from the environment or `.env`. You can still `export OPENAI_API_KEY=...` if you prefer. Optional: `OPENAI_MODEL` (default `gpt-4o-mini`), `RAG_K` (default `3`), `RAG_SCORE_THRESHOLD` (default `1.2`, Chroma L2 distance — lower is better), `RAG_HYBRID` / `RAG_RERANKER` / `COHERE_API_KEY` (hybrid BM25 + re-ranking — see [docs/hybrid-rag-reranking.md](./docs/hybrid-rag-reranking.md)), `OPENAI_TIMEOUT_SECONDS` (default `30`). The key is never logged or returned in API responses.
 
 ## Run
 

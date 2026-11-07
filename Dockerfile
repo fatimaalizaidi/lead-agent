@@ -21,6 +21,11 @@ RUN apt-get update \
     && apt-get purge -y --auto-remove build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Bake the local cross-encoder re-ranker (~33 MB ONNX) so containers never download at runtime.
+# Must match RAG_RERANKER_MODEL; rag.py reads it from /app/models/flashrank by default.
+RUN python -c "from flashrank import Ranker; Ranker(model_name='ms-marco-MiniLM-L-12-v2', cache_dir='/app/models/flashrank')" \
+    && chown -R appuser:appuser /app/models
+
 COPY --chown=appuser:appuser main.py rag.py config.py errors.py guardrails.py observability.py agent.py tools.py memory.py multiagent.py ./
 COPY --chown=appuser:appuser knowledge/ ./knowledge/
 

@@ -16,6 +16,19 @@ class Settings(BaseSettings):
     # Chroma L2 distance via similarity_search_with_score: **lower is better**.
     # Scores worse than (greater than) this threshold → low RAG confidence → force High.
     rag_score_threshold: float = 1.2
+    # Hybrid retrieval: fuse Chroma vector hits with BM25 keyword hits (Reciprocal Rank Fusion).
+    rag_hybrid: bool = True
+    # Candidates pulled from each retriever before fusion + re-ranking (final count is rag_k).
+    rag_candidate_k: int = 10
+    # Re-ranker: auto (Cohere when COHERE_API_KEY is set, else local cross-encoder),
+    # cohere, cross-encoder, or none. Failures fall back to fused order.
+    rag_reranker: str = "auto"
+    # Local cross-encoder (FlashRank ONNX, no torch). Empty cache dir → ./models/flashrank.
+    rag_reranker_model: str = "ms-marco-MiniLM-L-12-v2"
+    rag_reranker_cache_dir: str = ""
+    # Cohere Rerank (optional). Never log or return the key.
+    cohere_api_key: str = ""
+    cohere_rerank_model: str = "rerank-v3.5"
     # Per-request OpenAI chat timeout (seconds). Hard failure → HTTP 502 for n8n retry.
     openai_timeout_seconds: float = 30.0
     # Conversation memory (Redis). Empty REDIS_URL → memory soft-disabled (stateless).

@@ -8,6 +8,7 @@ __pycache__
 .gitignore
 data
 logs
+models
 *.md
 !knowledge/*.md
 .DS_Store

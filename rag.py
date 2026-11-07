@@ -5,8 +5,11 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 # Chroma's PostHog telemetry is broken in this version (logs capture() errors per query); opt out
 # before chromadb is imported. Set ANONYMIZED_TELEMETRY=True explicitly to re-enable.
@@ -16,6 +19,7 @@ from langchain_chroma import Chroma  # noqa: E402
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from rank_bm25 import BM25Okapi
 
 from config import get_settings
 
@@ -27,7 +31,15 @@ CHROMA_DIR = ROOT / "data" / "chroma"
 FINGERPRINT_PATH = CHROMA_DIR / ".kb_fingerprint"
 COLLECTION_NAME = "company_kb"
 
+# Reciprocal Rank Fusion constant (standard value from the original RRF paper).
+RRF_K = 60
+COHERE_RERANK_URL = "https://api.cohere.com/v2/rerank"
+
 _vectorstore: Chroma | None = None
+# (store id, KB fingerprint, BM25 index, chunk docs) — rebuilt when the KB changes.
+_bm25_cache: tuple[int, str, BM25Okapi, list[Document]] | None = None
+_cross_encoder: Any = None
+_cross_encoder_failed = False
 
 
 def _require_api_key() -> str:
@@ -192,15 +204,144 @@ def get_retriever(k: int | None = None):
     return get_vectorstore().as_retriever(search_kwargs={"k": k if k is not None else _default_k()})
 
 
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _passage(doc: Document) -> str:
+    """Chunk text with its article title, so later chunks (no "# Title" line) keep their topic."""
+    title = str(doc.metadata.get("title") or "")
+    if title and title not in doc.page_content:
+        return f"{title}\n{doc.page_content}"
+    return doc.page_content
+
+
+def _chunk_key(doc: Document) -> tuple[str, str]:
+    return (str(doc.metadata.get("source") or ""), doc.page_content)
+
+
+def _bm25_index(store: Chroma) -> tuple[BM25Okapi, list[Document]] | None:
+    """BM25 index over every chunk in the Chroma collection (cached per KB fingerprint)."""
+    global _bm25_cache
+    fingerprint = _kb_fingerprint()
+    if _bm25_cache is not None and _bm25_cache[0] == id(store) and _bm25_cache[1] == fingerprint:
+        return _bm25_cache[2], _bm25_cache[3]
+
+    raw = store.get(include=["documents", "metadatas"])
+    texts = raw.get("documents") or []
+    metas = raw.get("metadatas") or [{}] * len(texts)
+    docs = [Document(page_content=t, metadata=m or {}) for t, m in zip(texts, metas) if t]
+    if not docs:
+        return None
+    index = BM25Okapi([_tokenize(_passage(d)) for d in docs])
+    _bm25_cache = (id(store), fingerprint, index, docs)
+    return index, docs
+
+
+def _keyword_search(store: Chroma, query: str, k: int) -> list[Document]:
+    built = _bm25_index(store)
+    tokens = _tokenize(query)
+    if built is None or not tokens:
+        return []
+    index, docs = built
+    scores = index.get_scores(tokens)
+    ranked = sorted(range(len(docs)), key=lambda i: scores[i], reverse=True)
+    # Zero/negative BM25 = no useful term overlap; don't let it pad the fusion.
+    return [docs[i] for i in ranked[:k] if scores[i] > 0]
+
+
+def _reciprocal_rank_fusion(*rankings: list[Document]) -> list[Document]:
+    """Merge ranked lists: each doc scores sum(1 / (RRF_K + rank)) across lists."""
+    scores: dict[tuple[str, str], float] = {}
+    docs: dict[tuple[str, str], Document] = {}
+    for ranking in rankings:
+        for rank, doc in enumerate(ranking, start=1):
+            key = _chunk_key(doc)
+            scores[key] = scores.get(key, 0.0) + 1.0 / (RRF_K + rank)
+            docs.setdefault(key, doc)
+    return [docs[key] for key in sorted(scores, key=scores.get, reverse=True)]
+
+
+def _get_cross_encoder() -> Any:
+    """Lazy FlashRank cross-encoder (ONNX). None when unavailable — logged once."""
+    global _cross_encoder, _cross_encoder_failed
+    if _cross_encoder is not None or _cross_encoder_failed:
+        return _cross_encoder
+    settings = get_settings()
+    cache_dir = settings.rag_reranker_cache_dir or str(ROOT / "models" / "flashrank")
+    try:
+        from flashrank import Ranker
+
+        _cross_encoder = Ranker(model_name=settings.rag_reranker_model, cache_dir=cache_dir)
+    except Exception:
+        _cross_encoder_failed = True
+        logger.warning("Cross-encoder re-ranker unavailable; using fused order.", exc_info=True)
+    return _cross_encoder
+
+
+def _rerank_cross_encoder(query: str, docs: list[Document]) -> list[Document] | None:
+    ranker = _get_cross_encoder()
+    if ranker is None:
+        return None
+    from flashrank import RerankRequest
+
+    passages = [{"id": i, "text": _passage(d)} for i, d in enumerate(docs)]
+    results = ranker.rerank(RerankRequest(query=query, passages=passages))
+    return [docs[int(r["id"])] for r in results]
+
+
+def _rerank_cohere(query: str, docs: list[Document]) -> list[Document] | None:
+    settings = get_settings()
+    if not settings.cohere_api_key:
+        return None
+    response = httpx.post(
+        COHERE_RERANK_URL,
+        headers={"Authorization": f"Bearer {settings.cohere_api_key}"},
+        json={
+            "model": settings.cohere_rerank_model,
+            "query": query,
+            "documents": [_passage(d) for d in docs],
+        },
+        timeout=10.0,
+    )
+    response.raise_for_status()
+    results = response.json().get("results") or []
+    return [docs[int(r["index"])] for r in results]
+
+
+def _rerank(query: str, docs: list[Document]) -> tuple[list[Document], str]:
+    """Re-order candidates by relevance. Returns (docs, reranker used); never raises."""
+    mode = get_settings().rag_reranker.strip().lower()
+    if mode == "none" or len(docs) < 2:
+        return docs, "none"
+    if mode == "auto":
+        mode = "cohere" if get_settings().cohere_api_key else "cross-encoder"
+
+    rerankers = {"cohere": _rerank_cohere, "cross-encoder": _rerank_cross_encoder}
+    reranker = rerankers.get(mode)
+    if reranker is None:
+        logger.warning("Unknown RAG_RERANKER=%r; using fused order.", mode)
+        return docs, "none"
+    try:
+        ranked = reranker(query, docs)
+    except Exception as exc:
+        logger.warning("%s re-rank failed (%s); using fused order.", mode, type(exc).__name__)
+        return docs, "none"
+    return (ranked, mode) if ranked else (docs, "none")
+
+
 def retrieve_context(
     query: str, k: int | None = None
 ) -> tuple[list[dict[str, str]], float | None]:
     """
     Retrieve top-k knowledge chunks for a query with best distance score.
 
-    Uses Chroma ``similarity_search_with_score`` (L2 distance: **lower is better**).
-    Returns ``(chunks, best_score)`` where ``best_score`` is the lowest distance
-    among hits, or ``None`` when nothing was retrieved.
+    Pipeline: Chroma vector search + BM25 keyword search (``RAG_HYBRID``), merged with
+    Reciprocal Rank Fusion, then re-ranked (``RAG_RERANKER``) and cut to ``k``.
+
+    ``best_score`` is the lowest Chroma L2 distance among vector hits (**lower is
+    better**), or ``None`` when nothing was retrieved. It stays vector-only so the
+    ``RAG_SCORE_THRESHOLD`` low-confidence check keeps its meaning.
 
     Chunks are ``{"title": ..., "content": ...}`` dicts, deduplicated by article
     title (preferring longer content snippets when merging).
@@ -209,21 +350,38 @@ def retrieve_context(
     if not query:
         return [], None
 
+    settings = get_settings()
     top_k = k if k is not None else _default_k()
     store = get_vectorstore()
-    if _collection_count(store) == 0:
+    count = _collection_count(store)
+    if count == 0:
         return [], None
+    # Never ask Chroma for more results than it holds (it warns on every query otherwise).
+    candidate_k = min(max(top_k, settings.rag_candidate_k), count)
 
     # Chroma default space is L2: smaller score = closer match.
-    scored = store.similarity_search_with_score(query, k=top_k)
-    if not scored:
+    scored = store.similarity_search_with_score(query, k=candidate_k)
+    best_score = min((float(score) for _, score in scored), default=None)
+    vector_docs = [doc for doc, _ in scored]
+
+    keyword_docs = _keyword_search(store, query, candidate_k) if settings.rag_hybrid else []
+    candidates = _reciprocal_rank_fusion(vector_docs, keyword_docs)
+    if not candidates:
         return [], None
 
-    best_score = min(float(score) for _, score in scored)
+    ranked, reranker = _rerank(query, candidates)
+    logger.info(
+        "rag retrieve vector_hits=%d keyword_hits=%d fused=%d reranker=%s k=%d",
+        len(vector_docs),
+        len(keyword_docs),
+        len(candidates),
+        reranker,
+        top_k,
+    )
 
     by_title: dict[str, str] = {}
     order: list[str] = []
-    for doc, _score in scored:
+    for doc in ranked[:top_k]:
         title = str(doc.metadata.get("title") or doc.metadata.get("source") or "Untitled")
         content = doc.page_content.strip()
         if title not in by_title:

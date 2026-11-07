@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
-from langchain_chroma import Chroma
+# Chroma's PostHog telemetry is broken in this version (logs capture() errors per query); opt out
+# before chromadb is imported. Set ANONYMIZED_TELEMETRY=True explicitly to re-enable.
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+
+from langchain_chroma import Chroma  # noqa: E402
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter

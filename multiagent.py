@@ -48,7 +48,10 @@ Return JSON only: {"next":"sales"|"knowledge"|"escalation"|"finish","reason":"on
 SALES_PROMPT = """You are the Sales/Pricing Agent for Acme LeadDesk.
 Execute seat and tier pricing with calculate_custom_quote (starter / growth / enterprise).
 Use check_calendar_availability only when the customer wants a demo or call.
-After tools, reply in 1–3 short professional sentences. Do not invent prices or slots."""
+After tools, reply in 1–3 short professional sentences. Do not invent prices or slots.
+Offer only slots returned by check_calendar_availability, quoting each slot's label verbatim.
+If returned slots match the requested day or time (afternoon = 12:00–18:00), offer those as available;
+only when none match, say the request is unavailable and offer the returned slots."""
 
 KNOWLEDGE_PROMPT = """You are the Knowledge Agent for Acme LeadDesk.
 Answer from COMPANY KNOWLEDGE retrieved from the local knowledge base (SLAs, policies,

@@ -83,6 +83,8 @@ def check_calendar_availability() -> dict[str, Any]:
                     "start": start.isoformat().replace("+00:00", "Z"),
                     "end": end.isoformat().replace("+00:00", "Z"),
                     "timezone": "UTC",
+                    # Human label so the model never has to derive the weekday itself.
+                    "label": start.strftime("%A %d %B %Y, %H:%M UTC"),
                 }
             )
             if len(slots) >= 4:
@@ -91,6 +93,7 @@ def check_calendar_availability() -> dict[str, Any]:
     logger.info("tool check_calendar_availability slots={}", len(slots))
     return {
         "ok": True,
+        "today": now.strftime("%A %d %B %Y"),
         "available_slots": slots,
         "note": "Stub calendar — slots are fake and for demo only.",
     }

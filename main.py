@@ -18,11 +18,6 @@ from agent import (
     AgentActionResponse,
     run_agent_action,
 )
-from multiagent import (
-    MultiAgentRequest,
-    MultiAgentResponse,
-    run_multi_agent,
-)
 from config import get_settings
 from errors import (
     AppError,
@@ -32,6 +27,12 @@ from errors import (
     register_exception_handlers,
 )
 from guardrails import sanitize_email, sanitize_message
+from memory import append_messages, history_for_openai, resolve_thread_id
+from multiagent import (
+    MultiAgentRequest,
+    MultiAgentResponse,
+    run_multi_agent,
+)
 from observability import (
     RequestIdMiddleware,
     elapsed_ms,
@@ -42,7 +43,6 @@ from observability import (
     log_request_start,
     setup_logging,
 )
-from memory import append_messages, history_for_openai, resolve_thread_id
 from rag import (
     format_context_for_prompt,
     knowledge_source_titles,

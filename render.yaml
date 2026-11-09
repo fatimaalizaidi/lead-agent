@@ -12,6 +12,8 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /health
+    # Deploy a push to main only after GitHub Actions CI (.github/workflows/ci.yml) passes.
+    autoDeployTrigger: checksPass
     envVars:
       - key: OPENAI_API_KEY
         sync: false

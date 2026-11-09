@@ -23,7 +23,7 @@ import json
 import sys
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -170,7 +170,7 @@ def run(args: argparse.Namespace) -> int:
     judge_model = args.judge_model or get_settings().openai_model
     modes = COMPARE_MODES if args.compare else [args.mode]
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
     summaries: dict[str, dict[str, float]] = {}
     for mode in modes:

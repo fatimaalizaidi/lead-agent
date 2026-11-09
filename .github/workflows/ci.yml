@@ -1,0 +1,83 @@
+# CI: lint + offline tests + Docker build/smoke test on every push and pull request.
+#
+# Deploys: Render watches this workflow. With `autoDeployTrigger: checksPass` (render.yaml),
+# a push to main deploys only after every job here passes. See docs/ci-cd.md.
+#
+# No secrets needed: tests mock OpenAI / Redis / webhooks (tests/conftest.py), and the
+# Docker smoke test uses a placeholder key because /health never calls OpenAI.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.13" # keep in sync with the Dockerfile base image
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install ruff (version pinned in requirements-dev.txt)
+        run: pip install "$(grep -E '^ruff==' requirements-dev.txt)"
+      - run: ruff check --output-format=github .
+
+  test:
+    name: Tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+
+  docker:
+    name: Docker build + smoke test
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: lead-agent:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Start container and wait for /health
+        run: |
+          docker run -d --name lead-agent -p 8000:8000 \
+            -e OPENAI_API_KEY=sk-ci-placeholder-not-real lead-agent:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health; then echo; exit 0; fi
+            sleep 2
+          done
+          echo "::error::container never became healthy"
+          docker logs lead-agent
+          exit 1
+      - name: Container logs
+        if: always()
+        run: docker logs lead-agent 2>&1 | tail -50 || true

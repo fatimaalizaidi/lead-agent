@@ -230,7 +230,7 @@ def _bm25_index(store: Chroma) -> tuple[BM25Okapi, list[Document]] | None:
     raw = store.get(include=["documents", "metadatas"])
     texts = raw.get("documents") or []
     metas = raw.get("metadatas") or [{}] * len(texts)
-    docs = [Document(page_content=t, metadata=m or {}) for t, m in zip(texts, metas) if t]
+    docs = [Document(page_content=t, metadata=m or {}) for t, m in zip(texts, metas, strict=False) if t]
     if not docs:
         return None
     index = BM25Okapi([_tokenize(_passage(d)) for d in docs])

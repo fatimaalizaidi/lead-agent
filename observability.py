@@ -16,10 +16,11 @@ import os
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -28,7 +29,7 @@ from starlette.responses import Response
 
 REQUEST_ID_HEADER = "X-Request-ID"
 _request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
-_metrics_var: ContextVar["RequestMetrics | None"] = ContextVar(
+_metrics_var: ContextVar[RequestMetrics | None] = ContextVar(
     "request_metrics", default=None
 )
 

@@ -7,3 +7,5 @@ fakeredis==2.27.0
 # RAG evaluation (python -m eval.run_ragas). langchain-community pinned to match langchain 0.3.25.
 ragas==0.2.15
 langchain-community==0.3.23
+# Lint (CI runs `ruff check .`; config in pyproject.toml)
+ruff==0.8.6

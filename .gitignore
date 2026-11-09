@@ -13,3 +13,6 @@ data/chroma/
 logs/
 models/
 .DS_Store
+
+# RAG evaluation reports (python -m eval.run_ragas)
+eval/results/

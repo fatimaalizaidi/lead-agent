@@ -343,8 +343,8 @@ def retrieve_context(
     better**), or ``None`` when nothing was retrieved. It stays vector-only so the
     ``RAG_SCORE_THRESHOLD`` low-confidence check keeps its meaning.
 
-    Chunks are ``{"title": ..., "content": ...}`` dicts, deduplicated by article
-    title (preferring longer content snippets when merging).
+    Chunks are ``{"title": ..., "content": ...}`` dicts, one per article: the top-k chunks
+    of the same article are joined, never dropped (see ``_group_by_article``).
     """
     query = (query or "").strip()
     if not query:
@@ -379,19 +379,25 @@ def retrieve_context(
         top_k,
     )
 
-    by_title: dict[str, str] = {}
-    order: list[str] = []
-    for doc in ranked[:top_k]:
+    return _group_by_article(ranked[:top_k]), best_score
+
+
+def _group_by_article(docs: list[Document]) -> list[dict[str, str]]:
+    """
+    One ``{"title", "content"}`` entry per article, in rank order of its best chunk.
+
+    Every selected chunk is kept: chunks from the same article are joined (in rank order)
+    rather than collapsed to one, so e.g. the second half of a long article still reaches
+    the LLM when it was retrieved.
+    """
+    parts: dict[str, list[str]] = {}
+    for doc in docs:
         title = str(doc.metadata.get("title") or doc.metadata.get("source") or "Untitled")
         content = doc.page_content.strip()
-        if title not in by_title:
-            by_title[title] = content
-            order.append(title)
-        elif len(content) > len(by_title[title]):
-            by_title[title] = content
-
-    chunks = [{"title": t, "content": by_title[t]} for t in order]
-    return chunks, best_score
+        article = parts.setdefault(title, [])
+        if content and content not in article:
+            article.append(content)
+    return [{"title": title, "content": "\n\n".join(texts)} for title, texts in parts.items()]
 
 
 def format_context_for_prompt(chunks: list[dict[str, str]]) -> str:

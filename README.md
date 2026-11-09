@@ -13,7 +13,7 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-For offline API tests: `pip install -r requirements-dev.txt && pytest`. See **[docs/testing.md](./docs/testing.md)** (OpenAI, RAG, Redis, and Slack/email webhooks are mocked).
+For offline API tests: `pip install -r requirements-dev.txt && pytest`. See **[docs/testing.md](./docs/testing.md)** (OpenAI, RAG, Redis, and Slack/email webhooks are mocked). To score RAG quality with Ragas (live OpenAI calls): `python -m eval.run_ragas --compare` — see **[docs/rag-evaluation.md](./docs/rag-evaluation.md)**.
 
 ## API key
 

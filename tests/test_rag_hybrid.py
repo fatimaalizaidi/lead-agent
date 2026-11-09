@@ -114,3 +114,49 @@ def test_reranker_failure_falls_back_to_fused_order(monkeypatch: pytest.MonkeyPa
         ranked, used = rag._rerank("q", docs)
     assert used == "none"
     assert ranked == docs
+
+
+def test_group_by_article_keeps_every_chunk_of_an_article() -> None:
+    # Regression: chunks of one article used to collapse to the longest, so the second
+    # half of e.g. pricing.md ("volume discounts start at 50 seats") never reached the LLM.
+    docs = [
+        _doc("Starter $49, Growth $149 and a long intro paragraph", "Pricing Plans"),
+        _doc("Uptime 99.9%", "SLA"),
+        _doc("Volume discounts start at 50 seats", "Pricing Plans"),
+        _doc("Uptime 99.9%", "SLA"),  # duplicate text is not repeated
+    ]
+    assert rag._group_by_article(docs) == [
+        {
+            "title": "Pricing Plans",
+            "content": "Starter $49, Growth $149 and a long intro paragraph\n\n"
+            "Volume discounts start at 50 seats",
+        },
+        {"title": "SLA", "content": "Uptime 99.9%"},
+    ]
+
+
+def test_retrieve_context_returns_later_chunks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A multi-chunk article: a question about its second chunk must get that chunk's text."""
+    knowledge = tmp_path / "knowledge"
+    knowledge.mkdir()
+    intro = "# Pricing Plans\n\n" + ("Starter plan details and seat limits. " * 30)
+    (knowledge / "pricing.md").write_text(
+        intro + "\n## Volume\nVolume discounts start at 50 seats on Growth.", encoding="utf-8"
+    )
+    chroma = tmp_path / "chroma"
+    monkeypatch.setattr(rag, "KNOWLEDGE_DIR", knowledge)
+    monkeypatch.setattr(rag, "CHROMA_DIR", chroma)
+    monkeypatch.setattr(rag, "FINGERPRINT_PATH", chroma / ".kb_fingerprint")
+    monkeypatch.setattr(rag, "_embeddings", lambda: DeterministicFakeEmbedding(size=32))
+    monkeypatch.setattr(rag, "_vectorstore", None)
+    monkeypatch.setattr(rag, "_bm25_cache", None)
+    monkeypatch.setenv("RAG_RERANKER", "none")
+    try:
+        count = rag._collection_count(rag.get_vectorstore())
+        assert count >= 2, "article should be split into several chunks"
+        chunks, _ = rag.retrieve_context("When do volume discounts start?", k=count)
+        assert [c["title"] for c in chunks] == ["Pricing Plans"]
+        assert "50 seats" in chunks[0]["content"]
+        assert "Starter plan details" in chunks[0]["content"]
+    finally:
+        rag._vectorstore.delete_collection()

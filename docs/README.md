@@ -19,6 +19,7 @@ User-facing notes copied from Cursor Project Context so Claude Desktop (and anyo
 | [pydantic-strict-json-plan.md](./pydantic-strict-json-plan.md) | Stricter Pydantic + JSON plan |
 | [rag-upgrade.md](./rag-upgrade.md) | ChromaDB + LangChain RAG upgrade |
 | [hybrid-rag-reranking.md](./hybrid-rag-reranking.md) | Hybrid search (Chroma + BM25) and cross-encoder / Cohere re-ranking |
+| [rag-evaluation.md](./rag-evaluation.md) | Ragas evaluation: faithfulness, answer relevancy, context recall/precision (`python -m eval.run_ragas`) |
 | [testing.md](./testing.md) | Offline pytest + httpx API tests (mocked OpenAI / RAG / Redis / webhooks) |
 
 App setup and API usage live in the [root README](../README.md).

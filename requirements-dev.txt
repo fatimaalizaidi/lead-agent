@@ -4,3 +4,6 @@ pytest==8.3.5
 pytest-asyncio==0.25.3
 fakeredis==2.27.0
 # httpx is already in requirements.txt (used by the app + AsyncClient tests)
+# RAG evaluation (python -m eval.run_ragas). langchain-community pinned to match langchain 0.3.25.
+ragas==0.2.15
+langchain-community==0.3.23

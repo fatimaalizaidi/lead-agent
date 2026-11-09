@@ -225,7 +225,7 @@ Full walkthrough: **[DEPLOY.md](./DEPLOY.md)**. Do not commit `.env` or bake key
 2. Render dashboard → **New +** → **Web Service** → connect repo → **Runtime: Docker** → Health Check Path `/health` → leave Start Command empty → set env `OPENAI_API_KEY` → **Create Web Service**.
 3. n8n **HTTP Request**: `POST {public_url}/analyze-lead` with JSON `{"message":"...","email":"..."}` (optional header `X-Request-ID`).
 
-Also included: `render.yaml` (Blueprint), `docker-compose.yml` for local Docker. Alternate quick tunnel (ngrok) is documented in DEPLOY.md.
+CI/CD: GitHub Actions runs lint, tests and a Docker smoke test on every push; Render deploys `main` only after CI passes — see **[docs/ci-cd.md](./docs/ci-cd.md)**. Also included: `render.yaml` (Blueprint), `docker-compose.yml` for local Docker. Alternate quick tunnel (ngrok) is documented in DEPLOY.md.
 
 ## Refine the prompt
 

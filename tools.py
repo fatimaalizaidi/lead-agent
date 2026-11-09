@@ -6,8 +6,9 @@ Stub business logic only — safe for demos / local smoke tests.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from loguru import logger
 
@@ -67,7 +68,7 @@ def calculate_custom_quote(tier: str, seats: int) -> dict[str, Any]:
 
 def check_calendar_availability() -> dict[str, Any]:
     """Return fake available demo slots for the next few business days."""
-    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     # Next weekday mornings/afternoons (UTC) — deterministic-ish stub.
     slots: list[dict[str, str]] = []
     day = now

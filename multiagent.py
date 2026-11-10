@@ -40,10 +40,27 @@ AgentName = Literal["sales", "knowledge", "escalation", "finish"]
 
 SUPERVISOR_PROMPT = """You are the Supervisor for Acme LeadDesk.
 Analyze the incoming intent and delegate to exactly one specialist (or finish):
-- sales: Sales/Pricing Agent — seat counts, tiers, quotes, demos, calendar
-- knowledge: Knowledge Agent — SLAs, refunds, policies, onboarding, support hours, technical docs
+- knowledge: Knowledge Agent — any question about how Acme works, answered from company docs:
+  pricing POLICY (volume discounts, annual billing discount, what plans include, add-ons),
+  SLAs and severity response times (e.g. Sev-1), refunds, cancellations, support hours,
+  onboarding, security, integrations, technical docs
+- sales: Sales/Pricing Agent — ONLY computing a concrete quote for a tier + seat count,
+  or checking demo / sales-call slots
 - escalation: Escalation Agent — high-priority, angry, urgent, or churn-risk cases that need Slack or email dispatch
-- finish: a clear final reply already exists and no more specialists are needed
+- finish: every part of the message is already answered in current_reply
+Rules:
+- A question about a policy or rule ("when do discounts start", "what is your response time",
+  "do you refund") goes to knowledge, even if it mentions prices or seats.
+- Mixed messages: route each unanswered part in turn. Send the policy/SLA/support part to
+  knowledge first; then, if a quote or demo is still needed, send it to sales.
+- Do not finish while a part of the message is unanswered and its specialist is not yet in
+  agents_already_called.
+Examples:
+- "When do volume discounts start, and what is your Sev-1 response time?" -> knowledge
+- "Quote Growth for 25 seats" -> sales
+- "Can I book a demo Thursday afternoon?" -> sales
+- "What's your refund policy, and quote Starter for 10 seats?" -> knowledge, then sales
+- "This is unacceptable, cancel everything and call me now" -> escalation
 Return JSON only: {"next":"sales"|"knowledge"|"escalation"|"finish","reason":"one short clause"}."""
 
 SALES_PROMPT = """You are the Sales/Pricing Agent for Acme LeadDesk.
@@ -52,12 +69,17 @@ Use check_calendar_availability only when the customer wants a demo or call.
 After tools, reply in 1–3 short professional sentences. Do not invent prices or slots.
 Offer only slots returned by check_calendar_availability, quoting each slot's label verbatim.
 If returned slots match the requested day or time (afternoon = 12:00–18:00), offer those as available;
-only when none match, say the request is unavailable and offer the returned slots."""
+only when none match, say the request is unavailable and offer the returned slots.
+Do not answer policy, discount, SLA, refund, support-hours or onboarding questions yourself;
+the Knowledge Agent handles those. prior_reply (if any) is already shown to the customer:
+do not repeat it, and answer only the quote or demo part."""
 
 KNOWLEDGE_PROMPT = """You are the Knowledge Agent for Acme LeadDesk.
 Answer from COMPANY KNOWLEDGE retrieved from the local knowledge base (SLAs, policies,
 onboarding, support hours, technical docs). If knowledge is empty or irrelevant, say briefly
-what you do not know and suggest sales or escalation. 1–3 short sentences. No invented policy numbers."""
+what you do not know and suggest sales or escalation. 1–3 short sentences. No invented policy numbers.
+Answer only the policy questions. Ignore quote or demo requests entirely and do not mention them;
+another agent answers those. prior_reply (if any) is already shown to the customer: do not repeat it."""
 
 ESCALATION_PROMPT = """You are the Escalation Agent for Acme LeadDesk.
 Handle high-priority dispatch. Analyze sentiment (positive|neutral|negative|urgent).
@@ -215,6 +237,14 @@ async def _chat(
         total_tokens=getattr(usage, "total_tokens", None) if usage else None,
     )
     return completion
+
+
+def _combine_replies(prior: str | None, reply: str) -> str:
+    """Keep an earlier specialist's answer when a later one handles another part."""
+    prior = (prior or "").strip()
+    if not prior or prior in reply:
+        return reply
+    return f"{prior}\n\n{reply}"
 
 
 def _parse_tool_arguments(raw: str | None) -> dict[str, Any]:
@@ -484,7 +514,11 @@ async def sales_node(state: GraphState) -> dict[str, Any]:
         *history_for_openai(state["thread_id"]),
         {
             "role": "user",
-            "content": f"email: {state['email']}\nmessage: {state['message']}",
+            "content": (
+                f"email: {state['email']}\n"
+                f"message: {state['message']}\n"
+                f"prior_reply: {state.get('agent_reply') or '(none)'}"
+            ),
         },
     ]
     tools_called: list[dict[str, Any]] = []
@@ -550,7 +584,7 @@ async def sales_node(state: GraphState) -> dict[str, Any]:
     return {
         "agents_called": ["sales"],
         "tools_called": tools_called,
-        "agent_reply": agent_reply,
+        "agent_reply": _combine_replies(state.get("agent_reply"), agent_reply),
         "next_agent": "supervisor",
     }
 
@@ -576,7 +610,8 @@ async def knowledge_node(state: GraphState) -> dict[str, Any]:
                 "role": "user",
                 "content": (
                     f"email: {state['email']}\n"
-                    f"message: {state['message']}\n\n"
+                    f"message: {state['message']}\n"
+                    f"prior_reply: {state.get('agent_reply') or '(none)'}\n\n"
                     f"COMPANY KNOWLEDGE:\n{kb_block}"
                 ),
             },
@@ -592,7 +627,7 @@ async def knowledge_node(state: GraphState) -> dict[str, Any]:
     return {
         "agents_called": ["knowledge"],
         "knowledge_sources": sources,
-        "agent_reply": agent_reply,
+        "agent_reply": _combine_replies(state.get("agent_reply"), agent_reply),
         "next_agent": "supervisor",
     }
 

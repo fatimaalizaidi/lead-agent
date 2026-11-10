@@ -23,6 +23,9 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.13" # keep in sync with the Dockerfile base image
+  # chroma-hnswlib has no 3.13 wheel and compiles with -march=native by default; a wheel built
+  # on one runner then crashes ("Illegal instruction") on a runner with a different CPU.
+  HNSWLIB_NO_NATIVE: "1"
 
 jobs:
   lint:
@@ -46,9 +49,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+          # The workflow file is part of the key so changing build flags above drops stale wheels.
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
+            .github/workflows/ci.yml
       - run: pip install -r requirements-dev.txt
       - run: pytest -q
 

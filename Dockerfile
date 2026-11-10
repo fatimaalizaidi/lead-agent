@@ -8,6 +8,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    # chroma-hnswlib has no Python 3.13 wheel, so it compiles here. Without this flag it builds
+    # with -march=native for the *build* machine's CPU and crashes (illegal instruction) on the
+    # first vector search when the host runs it on a different CPU (Render, any cloud).
+    HNSWLIB_NO_NATIVE=1 \
     PORT=8000
 
 RUN useradd --create-home --uid 1000 appuser

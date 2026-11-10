@@ -26,3 +26,7 @@ services:
         sync: false
       - key: LANGSMITH_PROJECT
         value: lead-agent
+      # Free plan has 0.1 CPU: the local cross-encoder re-ranker makes the first request take ~2 min.
+      # Hybrid search without it scored 0.91 vs 0.93 context recall (docs/rag-evaluation.md).
+      - key: RAG_RERANKER
+        value: none

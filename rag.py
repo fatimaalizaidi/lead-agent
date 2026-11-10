@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from langchain_chroma import Chroma  # noqa: E402
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langsmith import traceable
 from rank_bm25 import BM25Okapi
 
 from config import get_settings
@@ -37,6 +39,8 @@ RRF_K = 60
 COHERE_RERANK_URL = "https://api.cohere.com/v2/rerank"
 
 _vectorstore: Chroma | None = None
+# How many times this process (re)built the index — logged per retrieval to spot rebuild loops.
+_index_builds = 0
 # (store id, KB fingerprint, BM25 index, chunk docs) — rebuilt when the KB changes.
 _bm25_cache: tuple[int, str, BM25Okapi, list[Document]] | None = None
 _cross_encoder: Any = None
@@ -172,10 +176,13 @@ def _build_index(embeddings: OpenAIEmbeddings) -> Chroma:
         persist_directory=str(CHROMA_DIR),
     )
     _write_fingerprint()
+    global _index_builds
+    _index_builds += 1
     logger.info("Indexed %d chunks from %d knowledge articles.", len(chunks), len(docs))
     return store
 
 
+@traceable(run_type="chain", name="load_index")
 def get_vectorstore(*, force_rebuild: bool = False) -> Chroma:
     """Return a persisted Chroma store, indexing knowledge/*.md when empty or stale."""
     global _vectorstore
@@ -239,6 +246,7 @@ def _bm25_index(store: Chroma) -> tuple[BM25Okapi, list[Document]] | None:
     return index, docs
 
 
+@traceable(run_type="chain", name="keyword_search")
 def _keyword_search(store: Chroma, query: str, k: int) -> list[Document]:
     built = _bm25_index(store)
     tokens = _tokenize(query)
@@ -310,6 +318,7 @@ def _rerank_cohere(query: str, docs: list[Document]) -> list[Document] | None:
     return [docs[int(r["index"])] for r in results]
 
 
+@traceable(run_type="chain", name="rerank")
 def _rerank(query: str, docs: list[Document]) -> tuple[list[Document], str]:
     """Re-order candidates by relevance. Returns (docs, reranker used); never raises."""
     mode = get_settings().rag_reranker.strip().lower()
@@ -354,34 +363,51 @@ def retrieve_context(
 
     settings = get_settings()
     top_k = k if k is not None else _default_k()
+    t0 = time.perf_counter()
     store = get_vectorstore()
     count = _collection_count(store)
+    t1 = time.perf_counter()
     if count == 0:
         return [], None
     # Never ask Chroma for more results than it holds (it warns on every query otherwise).
     candidate_k = min(max(top_k, settings.rag_candidate_k), count)
 
     # Chroma default space is L2: smaller score = closer match.
-    scored = store.similarity_search_with_score(query, k=candidate_k)
+    scored = _vector_search(store, query, candidate_k)
     best_score = min((float(score) for _, score in scored), default=None)
     vector_docs = [doc for doc, _ in scored]
+    t2 = time.perf_counter()
 
     keyword_docs = _keyword_search(store, query, candidate_k) if settings.rag_hybrid else []
     candidates = _reciprocal_rank_fusion(vector_docs, keyword_docs)
+    t3 = time.perf_counter()
     if not candidates:
         return [], None
 
     ranked, reranker = _rerank(query, candidates)
+    t4 = time.perf_counter()
     logger.info(
-        "rag retrieve vector_hits=%d keyword_hits=%d fused=%d reranker=%s k=%d",
+        "rag retrieve vector_hits=%d keyword_hits=%d fused=%d reranker=%s k=%d "
+        "index_ms=%.0f vector_ms=%.0f keyword_ms=%.0f rerank_ms=%.0f index_builds=%d",
         len(vector_docs),
         len(keyword_docs),
         len(candidates),
         reranker,
         top_k,
+        (t1 - t0) * 1000,
+        (t2 - t1) * 1000,
+        (t3 - t2) * 1000,
+        (t4 - t3) * 1000,
+        _index_builds,
     )
 
     return _group_by_article(ranked[:top_k]), best_score
+
+
+@traceable(run_type="chain", name="vector_search")
+def _vector_search(store: Chroma, query: str, k: int) -> list[tuple[Document, float]]:
+    """Chroma similarity search (embeds the query with OpenAI, then nearest neighbours)."""
+    return store.similarity_search_with_score(query, k=k)
 
 
 def _group_by_article(docs: list[Document]) -> list[dict[str, str]]:

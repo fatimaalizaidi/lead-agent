@@ -19,3 +19,10 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-4o-mini
+      # LangSmith tracing: add the key in the dashboard to switch it on (docs/tracing.md).
+      - key: LANGSMITH_TRACING
+        value: "true"
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_PROJECT
+        value: lead-agent

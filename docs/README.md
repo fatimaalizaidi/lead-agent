@@ -16,6 +16,7 @@ User-facing notes copied from Cursor Project Context so Claude Desktop (and anyo
 | [n8n-priority-routing.md](./n8n-priority-routing.md) | n8n priority routing hub |
 | [n8n-priority-routing-workflow.json](./n8n-priority-routing-workflow.json) | Importable n8n workflow JSON |
 | [observability.md](./observability.md) | Request / RAG / LLM logging |
+| [tracing.md](./tracing.md) | LangSmith tracing, per-request LLM cost, failed tool-call tracking |
 | [production-hardening.md](./production-hardening.md) | Production hardening notes |
 | [pydantic-strict-json-plan.md](./pydantic-strict-json-plan.md) | Stricter Pydantic + JSON plan |
 | [rag-upgrade.md](./rag-upgrade.md) | ChromaDB + LangChain RAG upgrade |

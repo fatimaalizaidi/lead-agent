@@ -48,8 +48,10 @@ from rag import (
     knowledge_source_titles,
     retrieve_context,
 )
+from tracing import TracingMiddleware, configure_tracing, wrap_client
 
 setup_logging()
+configure_tracing()
 
 # Cap output tokens → lower latency + cost. 1–2 short sentences fit easily under this.
 MAX_TOKENS = 160
@@ -172,6 +174,8 @@ app = FastAPI(
     ),
     version="1.7.0",
 )
+# Starlette runs the last-added middleware first: RequestIdMiddleware wraps TracingMiddleware.
+app.add_middleware(TracingMiddleware)
 app.add_middleware(RequestIdMiddleware)
 register_exception_handlers(app)
 
@@ -207,9 +211,11 @@ def _get_async_client() -> openai.AsyncOpenAI:
             "OPENAI_API_KEY is not configured. Set it in `.env` before starting the server.",
             error_code="missing_api_key",
         )
-    return openai.AsyncOpenAI(
-        api_key=settings.openai_api_key,
-        timeout=settings.openai_timeout_seconds,
+    return wrap_client(
+        openai.AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            timeout=settings.openai_timeout_seconds,
+        )
     )
 
 

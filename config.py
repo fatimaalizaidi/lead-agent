@@ -40,6 +40,18 @@ class Settings(BaseSettings):
     # Multi-agent Router webhooks (optional). Empty → stub notifications only.
     slack_webhook_url: str = ""
     email_webhook_url: str = ""
+    # LangSmith tracing (optional). Off unless LANGSMITH_TRACING=true AND LANGSMITH_API_KEY is set.
+    # Never log or return the key. Traces include prompts and user messages — see docs/tracing.md.
+    langsmith_tracing: bool = False
+    langsmith_api_key: str = ""
+    langsmith_project: str = "lead-agent"
+    # Empty = LangSmith US cloud. EU: https://eu.api.smith.langchain.com
+    langsmith_endpoint: str = ""
+    # true = send traces without prompts / user messages (structure, timing, tokens and cost only).
+    langsmith_hide_inputs: bool = False
+    # Cost estimates in logs (USD per 1M tokens). Empty → built-in price table for OPENAI_MODEL.
+    llm_price_input_per_1m: float | None = None
+    llm_price_output_per_1m: float | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

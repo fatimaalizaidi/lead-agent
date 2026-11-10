@@ -11,7 +11,10 @@ App: `~/Projects/lead-agent`
   - token usage when OpenAI returns it (`prompt_tokens` / `completion_tokens` / `total_tokens`)
   - `error_code` on failures (also logged on the dedicated `error` line)
 - `/analyze-lead` also logs RAG: Chroma latency, hit count, best score, low-confidence / unavailable
+- Estimated `cost_usd` per LLM call and per request, plus one `tool` line per tool call (`ok=False` at WARNING) with `tool_calls` / `tool_failures` totals on `request_end`
 - Never logged: API keys, full prompts, message bodies, raw upstream payloads
+
+For LangSmith traces (full execution tree per request), see **[tracing.md](./tracing.md)**.
 
 ## Formats
 

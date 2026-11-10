@@ -29,6 +29,7 @@ from tools import (
     check_calendar_availability,
     execute_tool,
 )
+from tracing import run_tool, wrap_client
 
 # Bound supervisor hops so a mis-route cannot loop forever.
 MAX_SUPERVISOR_HOPS = 4
@@ -141,9 +142,11 @@ def _get_async_client() -> openai.AsyncOpenAI:
             "OPENAI_API_KEY is not configured. Set it in `.env` before starting the server.",
             error_code="missing_api_key",
         )
-    return openai.AsyncOpenAI(
-        api_key=settings.openai_api_key,
-        timeout=settings.openai_timeout_seconds,
+    return wrap_client(
+        openai.AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            timeout=settings.openai_timeout_seconds,
+        )
     )
 
 
@@ -516,13 +519,12 @@ async def sales_node(state: GraphState) -> dict[str, Any]:
         for tc in tool_calls:
             args = _parse_tool_arguments(tc.function.arguments)
             call_args = {k: v for k, v in args.items() if not str(k).startswith("_")}
-            if args.get("_parse_error"):
-                result: dict[str, Any] = {
-                    "ok": False,
-                    "error": "Could not parse tool arguments as JSON",
-                }
-            else:
-                result = _execute_sales_tool(tc.function.name, call_args)
+            result = run_tool(
+                tc.function.name,
+                call_args,
+                _execute_sales_tool,
+                parse_error=bool(args.get("_parse_error")),
+            )
             tools_called.append(
                 {"name": tc.function.name, "arguments": call_args, "result": result}
             )
@@ -644,10 +646,12 @@ async def escalation_node(state: GraphState) -> dict[str, Any]:
         for tc in tool_calls:
             args = _parse_tool_arguments(tc.function.arguments)
             call_args = {k: v for k, v in args.items() if not str(k).startswith("_")}
-            if args.get("_parse_error"):
-                result = {"ok": False, "error": "Could not parse tool arguments as JSON"}
-            else:
-                result = _execute_escalation_tool(tc.function.name, call_args)
+            result = run_tool(
+                tc.function.name,
+                call_args,
+                _execute_escalation_tool,
+                parse_error=bool(args.get("_parse_error")),
+            )
             tools_called.append(
                 {"name": tc.function.name, "arguments": call_args, "result": result}
             )

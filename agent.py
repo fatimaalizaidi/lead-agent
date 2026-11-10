@@ -21,6 +21,7 @@ from guardrails import sanitize_email, sanitize_message
 from memory import append_messages, history_for_openai
 from observability import elapsed_ms, log_llm
 from tools import TOOL_DEFINITIONS, execute_tool
+from tracing import run_tool, wrap_client
 
 # Cap agent loop iterations (model → tool → model …) to bound latency/cost.
 MAX_AGENT_ITERATIONS = 5
@@ -104,9 +105,11 @@ def _get_async_client() -> openai.AsyncOpenAI:
             "OPENAI_API_KEY is not configured. Set it in `.env` before starting the server.",
             error_code="missing_api_key",
         )
-    return openai.AsyncOpenAI(
-        api_key=settings.openai_api_key,
-        timeout=settings.openai_timeout_seconds,
+    return wrap_client(
+        openai.AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            timeout=settings.openai_timeout_seconds,
+        )
     )
 
 
@@ -259,13 +262,9 @@ async def run_agent_action(
             call_args = {
                 k: v for k, v in args.items() if not str(k).startswith("_")
             }
-            if args.get("_parse_error"):
-                result: dict[str, Any] = {
-                    "ok": False,
-                    "error": "Could not parse tool arguments as JSON",
-                }
-            else:
-                result = execute_tool(name, call_args)
+            result = run_tool(
+                name, call_args, execute_tool, parse_error=bool(args.get("_parse_error"))
+            )
 
             tools_called.append(
                 ToolCallRecord(name=name, arguments=call_args, result=result)

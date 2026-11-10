@@ -56,7 +56,48 @@ _JSON_EXTRA_KEYS = (
     "best_score",
     "low_confidence",
     "rag_unavailable",
+    "cost_usd",
+    "tool",
+    "tool_ok",
+    "tool_latency_ms",
+    "tool_error",
+    "tool_calls",
+    "tool_failures",
 )
+
+# OpenAI list prices, USD per 1M tokens (input, output). Override with LLM_PRICE_*_PER_1M.
+MODEL_PRICES_PER_1M: dict[str, tuple[float, float]] = {
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4.1": (2.00, 8.00),
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4.1-nano": (0.10, 0.40),
+}
+
+
+def estimate_cost_usd(
+    model: str, prompt_tokens: int | None, completion_tokens: int | None
+) -> float | None:
+    """USD cost of one call from token usage; ``None`` when usage or the price is unknown."""
+    if prompt_tokens is None and completion_tokens is None:
+        return None
+    from config import get_settings
+
+    settings = get_settings()
+    prices = MODEL_PRICES_PER_1M.get(model)
+    # Dated snapshots ("gpt-4o-mini-2024-07-18") use their base model's price.
+    if prices is None:
+        base = max((m for m in MODEL_PRICES_PER_1M if model.startswith(m + "-")), key=len, default=None)
+        prices = MODEL_PRICES_PER_1M.get(base) if base else None
+    price_in = settings.llm_price_input_per_1m
+    price_out = settings.llm_price_output_per_1m
+    if price_in is None or price_out is None:
+        if prices is None:
+            return None
+        price_in = prices[0] if price_in is None else price_in
+        price_out = prices[1] if price_out is None else price_out
+    cost = ((prompt_tokens or 0) * price_in + (completion_tokens or 0) * price_out) / 1_000_000
+    return round(cost, 6)
 
 
 @dataclass
@@ -70,6 +111,10 @@ class RequestMetrics:
     completion_tokens: int = 0
     total_tokens: int = 0
     has_token_usage: bool = False
+    cost_usd: float = 0.0
+    has_cost: bool = False
+    tool_calls: int = 0
+    tool_failures: int = 0
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -163,12 +208,16 @@ def _record_llm_into_metrics(
     prompt_tokens: int | None,
     completion_tokens: int | None,
     total_tokens: int | None,
+    cost_usd: float | None = None,
 ) -> None:
     metrics = _metrics_var.get()
     if metrics is None:
         return
     metrics.llm_latency_ms = round(metrics.llm_latency_ms + llm_latency_ms, 1)
     metrics.llm_calls += 1
+    if cost_usd is not None:
+        metrics.cost_usd = round(metrics.cost_usd + cost_usd, 6)
+        metrics.has_cost = True
     if prompt_tokens is not None:
         metrics.prompt_tokens += int(prompt_tokens)
         metrics.has_token_usage = True
@@ -281,12 +330,16 @@ def log_llm(
     completion_tokens: int | None,
     total_tokens: int | None,
 ) -> None:
+    cost_usd = estimate_cost_usd(model, prompt_tokens, completion_tokens)
     _record_llm_into_metrics(
         llm_latency_ms=llm_latency_ms,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=total_tokens,
+        cost_usd=cost_usd,
     )
+    cost = cost_usd if cost_usd is not None else "-"
+    cost_text = f"{cost_usd:.6f}" if cost_usd is not None else "-"
     logger.bind(
         event="llm",
         model=model,
@@ -294,15 +347,30 @@ def log_llm(
         prompt_tokens=prompt_tokens if prompt_tokens is not None else "-",
         completion_tokens=completion_tokens if completion_tokens is not None else "-",
         total_tokens=total_tokens if total_tokens is not None else "-",
+        cost_usd=cost,
     ).info(
         "llm model={} llm_latency_ms={} prompt_tokens={} completion_tokens={} "
-        "total_tokens={}",
+        "total_tokens={} cost_usd={}",
         model,
         llm_latency_ms,
         prompt_tokens if prompt_tokens is not None else "-",
         completion_tokens if completion_tokens is not None else "-",
         total_tokens if total_tokens is not None else "-",
+        cost_text,
     )
+
+
+def log_tool(*, name: str, ok: bool, latency_ms: float, error: str | None = None) -> None:
+    """One line per tool call; failures (``ok=False``) log at WARNING and count per request."""
+    metrics = _metrics_var.get()
+    if metrics is not None:
+        metrics.tool_calls += 1
+        if not ok:
+            metrics.tool_failures += 1
+    err = error or "-"
+    bound = logger.bind(event="tool", tool=name, tool_ok=ok, tool_latency_ms=latency_ms, tool_error=err)
+    log = bound.info if ok else bound.warning
+    log("tool name={} ok={} tool_latency_ms={} error={}", name, ok, latency_ms, err)
 
 
 def log_request_end(
@@ -332,6 +400,10 @@ def log_request_end(
 
     review = needs_human_review if needs_human_review is not None else "-"
     code = error_code if error_code is not None else "-"
+    cost: float | str = round(metrics.cost_usd, 6) if metrics and metrics.has_cost else "-"
+    cost_text = f"{cost:.6f}" if isinstance(cost, float) else cost
+    tool_calls = metrics.tool_calls if metrics else 0
+    tool_failures = metrics.tool_failures if metrics else 0
 
     bound_fields: dict[str, Any] = {
         "event": "request_end",
@@ -343,13 +415,16 @@ def log_request_end(
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": total_tokens,
+        "cost_usd": cost,
+        "tool_calls": tool_calls,
+        "tool_failures": tool_failures,
         "needs_human_review": review,
         "error_code": code,
     }
     logger.bind(**bound_fields).info(
         "request_end path={} status={} total_ms={} llm_latency_ms={} llm_calls={} "
-        "prompt_tokens={} completion_tokens={} total_tokens={} "
-        "needs_human_review={} error_code={}",
+        "prompt_tokens={} completion_tokens={} total_tokens={} cost_usd={} "
+        "tool_calls={} tool_failures={} needs_human_review={} error_code={}",
         resolved_path,
         status,
         total_ms,
@@ -358,6 +433,9 @@ def log_request_end(
         prompt_tokens,
         completion_tokens,
         total_tokens,
+        cost_text,
+        tool_calls,
+        tool_failures,
         review,
         code,
     )

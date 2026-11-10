@@ -26,7 +26,7 @@ RUN apt-get update \
 RUN python -c "from flashrank import Ranker; Ranker(model_name='ms-marco-MiniLM-L-12-v2', cache_dir='/app/models/flashrank')" \
     && chown -R appuser:appuser /app/models
 
-COPY --chown=appuser:appuser main.py rag.py config.py errors.py guardrails.py observability.py agent.py tools.py memory.py multiagent.py ./
+COPY --chown=appuser:appuser main.py rag.py config.py errors.py guardrails.py observability.py agent.py tools.py memory.py multiagent.py tracing.py ./
 COPY --chown=appuser:appuser knowledge/ ./knowledge/
 
 # Writable dirs for Chroma persistence + rotating logs (app runs as non-root).

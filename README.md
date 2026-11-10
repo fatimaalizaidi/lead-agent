@@ -215,7 +215,7 @@ Never logged: `OPENAI_API_KEY`, full prompts, message bodies, or raw upstream er
 ... | INFO | request_id=demo-n8n-001 | ... - request_end path=/analyze-lead status=200 total_ms=870.1 llm_latency_ms=810.5 llm_calls=1 prompt_tokens=420 completion_tokens=55 total_tokens=475 needs_human_review=False error_code=-
 ```
 
-More detail: **[docs/observability.md](./docs/observability.md)**. Restart uvicorn after changing `observability.py` / `main.py` / `errors.py`.
+More detail: **[docs/observability.md](./docs/observability.md)**. Tracing (LangSmith), cost per request and failed tool calls: **[docs/tracing.md](./docs/tracing.md)**. Restart uvicorn after changing `observability.py` / `main.py` / `errors.py`.
 
 ## Deploy / Going live (Render)
 

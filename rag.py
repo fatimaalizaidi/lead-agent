@@ -22,6 +22,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from rank_bm25 import BM25Okapi
 
 from config import get_settings
+from tracing import traced_retriever
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +331,7 @@ def _rerank(query: str, docs: list[Document]) -> tuple[list[Document], str]:
     return (ranked, mode) if ranked else (docs, "none")
 
 
+@traced_retriever
 def retrieve_context(
     query: str, k: int | None = None
 ) -> tuple[list[dict[str, str]], float | None]:

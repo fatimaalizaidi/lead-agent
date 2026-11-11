@@ -13,7 +13,7 @@ An AI back end that triages inbound sales leads and answers them. A LangGraph su
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     client["n8n workflow / any client"] -->|"POST /analyze-lead"| triage
     client -->|"POST /multi-agent"| sup
 

@@ -1,8 +1,103 @@
-# Lead Analyzer
+# Lead Agent: Multi-Agent AI Sales & Support Assistant
 
-FastAPI + Pydantic service that uses OpenAI to classify inbound leads as **High**, **Medium**, or **Low** and draft a short suggested reply. Before calling the model, it retrieves relevant company KB articles from a local ChromaDB store (LangChain) and injects them into the prompt.
+[![CI](https://github.com/fatimaalizaidi/lead-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/fatimaalizaidi/lead-agent/actions/workflows/ci.yml)
+![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688)
+![LangGraph](https://img.shields.io/badge/LangGraph-multi--agent-purple)
+[![Live demo](https://img.shields.io/badge/live%20demo-Render-46E3B7)](https://lead-agent-fjxq.onrender.com/docs)
 
-Project Context guides (RAG, n8n, deploy, observability, and more): **[docs/](./docs/)**.
+An AI back end that triages inbound sales leads and answers them. A LangGraph supervisor routes each message to Sales, Knowledge or Escalation agents, which use OpenAI tool calling and hybrid RAG over the company knowledge base. The service is evaluated with Ragas, traced in LangSmith, tested in CI and deployed on Render.
+
+**Live API:** <https://lead-agent-fjxq.onrender.com/docs>. It runs on Render's free plan, so the first request after a quiet period takes about 30–50 s while it wakes up.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    client["n8n workflow / any client"] -->|"POST /analyze-lead"| triage
+    client -->|"POST /multi-agent"| sup
+
+    subgraph api["FastAPI service (Docker on Render)"]
+        guard["Guardrails + Pydantic validation"]
+        triage["Lead triage: priority, reply, human-review flag"]
+        sup{"LangGraph supervisor"}
+        sales["Sales agent"]
+        know["Knowledge agent"]
+        esc["Escalation agent"]
+        rag["Hybrid RAG: ChromaDB + BM25, fused with RRF"]
+        tools["Tools: quote, calendar, Slack/email hand-off"]
+    end
+
+    guard --> triage
+    guard --> sup
+    sup --> sales --> tools
+    sup --> know --> rag
+    sup --> esc --> tools
+    triage --> rag
+    rag --> kb[("knowledge/*.md")]
+    sales & know & esc & triage --> llm["OpenAI gpt-4o-mini"]
+    sup -. "conversation memory" .-> redis[("Redis (optional)")]
+    api -. "traces: latency, tokens, cost" .-> ls["LangSmith"]
+```
+
+| Endpoint | What it does |
+|---|---|
+| `POST /analyze-lead` | Triage: classifies a lead as High / Medium / Low priority, drafts a reply grounded in the knowledge base, and flags low-confidence answers for human review. n8n routes leads on this. |
+| `POST /multi-agent` | The assistant: the supervisor routes to Sales (custom quotes, demo slots), Knowledge (policy, SLA, pricing answers from RAG) or Escalation (Slack/email hand-off). |
+| `POST /agent-action` | Earlier single-agent version with tool calling, kept for the n8n workflow. |
+| `GET /health` | Liveness check for Render. Never calls OpenAI and is never traced. |
+
+## Highlights
+
+- **Multi-agent orchestration:** a LangGraph supervisor with Sales, Knowledge and Escalation agents, and OpenAI function calling for quotes, calendar slots and human hand-off.
+- **Hybrid RAG:** ChromaDB vector search plus BM25 keyword search, merged with Reciprocal Rank Fusion, with optional cross-encoder or Cohere re-ranking.
+- **Evaluation:** a Ragas harness (faithfulness, answer relevancy, context recall and precision) on a 26-question golden set, comparing retrieval modes.
+- **Production-ready API:** FastAPI with strict JSON-schema outputs (Pydantic), input guardrails, soft fallbacks when retrieval fails, `X-Request-ID` correlation, and Redis conversation memory.
+- **CI/CD:** GitHub Actions runs ruff, **60 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
+- **Observability:** LangSmith traces every request (agent nodes, LLM calls, tools, retrieval steps), and structured JSON logs record latency, tokens, **cost in USD** and failed tool calls.
+- **Automation:** n8n workflows route leads to Slack or email by AI-assigned priority.
+
+## Results
+
+**Retrieval quality** (Ragas, 26 questions, judge `gpt-4o-mini`; details in [docs/rag-evaluation.md](docs/rag-evaluation.md)):
+
+| Retrieval mode | Faithfulness | Answer relevancy | Context recall | Context precision |
+|---|---|---|---|---|
+| Vector only | 0.739 | 0.620 | 0.891 | 0.917 |
+| Hybrid (vector + BM25) | 0.772 | 0.694 | 0.910 | 0.962 |
+| Hybrid + re-rank | 0.737 | 0.653 | **0.929** | **0.987** |
+
+**In production** (Render free plan, measured with LangSmith traces):
+
+| Request | Warm latency | Cost per request |
+|---|---|---|
+| `/analyze-lead` | ~2 s | ~$0.00015 |
+| `/multi-agent` (quote + demo slots, 2 tools) | ~5 s | ~$0.0004 |
+| `/multi-agent` (policy question, RAG) | ~5 s | ~$0.0003 |
+
+## Problems found and fixed
+
+- **Retrieval silently dropped half of each article.** The Ragas evaluation showed retrieval kept only one chunk per article. Fixing it raised context recall from 0.80 to 0.93 and ended the "I don't have that information" answers.
+- **Production crash (exit code 132).** `chroma-hnswlib` has no Python 3.13 wheel, so it compiled with `-march=native` for the CPU of Render's build machine and crashed on the runtime CPU. Building with `HNSWLIB_NO_NATIVE=1` fixed both Render and an intermittent CI failure.
+- **22 s requests on Render.** LangSmith traces showed retrieval was slow but not why. Adding per-step spans pinned 18–24 s on the cross-encoder re-ranker, which is too heavy for 0.1 CPU. Turning it off in production brought warm requests to about 2 s, for a small recall cost (0.91 vs 0.93).
+- **Policy questions routed to Sales.** A LangSmith trace showed the supervisor sending "Sev-1 response time?" to Sales, so it skipped retrieval. Routing now sends policy and SLA questions to Knowledge.
+
+## Deployment notes
+
+- **Hosting:** a Docker container on Render (free plan) with automatic HTTPS. Render's edge proxy handles TLS and routing, so there's no Nginx layer to manage. On a VPS, Nginx + Certbot would do the same job.
+- **Deploys:** Render deploys `main` once CI passes (Auto-Deploy: *After CI Checks Pass*). See [docs/ci-cd.md](docs/ci-cd.md).
+- **Free-plan settings:** `RAG_RERANKER=none` (0.1 CPU is too little for the local re-ranker), and Redis memory is optional.
+- **Tracing setup:** [docs/tracing.md](docs/tracing.md).
+
+## Tech stack
+
+Python 3.13 · FastAPI · Pydantic · OpenAI (gpt-4o-mini, embeddings) · LangGraph · LangChain · ChromaDB · rank-bm25 · FlashRank / Cohere Rerank · Ragas · Redis · LangSmith · loguru · pytest · ruff · Docker · GitHub Actions · Render · n8n
+
+All guides (RAG, agents, memory, guardrails, n8n, deploy, testing): **[docs/](./docs/)**
+
+---
+
+# Developer guide
 
 ## Setup
 
@@ -80,6 +175,8 @@ Example response shape:
 |--------|------|-------------|
 | `GET` | `/health` | Liveness check |
 | `POST` | `/analyze-lead` | Analyze a lead message (with RAG context) |
+| `POST` | `/multi-agent` | LangGraph supervisor → Sales / Knowledge / Escalation agents ([docs](./docs/multi-agent-langgraph.md)) |
+| `POST` | `/agent-action` | Single agent with tool calling ([docs](./docs/agent-tools.md)) |
 
 ### `POST /analyze-lead`
 

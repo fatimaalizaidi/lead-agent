@@ -48,13 +48,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          # The workflow file is part of the key so changing build flags above drops stale wheels.
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
-            .github/workflows/ci.yml
-      - run: pip install -r requirements-dev.txt
+          # No pip cache on purpose: chroma-hnswlib is built from source here, and setup-python's
+          # restore-key fallback brought back an old -march=native wheel from another runner's CPU
+          # ("Illegal instruction"). A fresh install costs ~1 min and is always portable.
+      - run: pip install --no-cache-dir -r requirements-dev.txt
       - run: pytest -q
 
   docker:

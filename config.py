@@ -12,11 +12,6 @@ class Settings(BaseSettings):
 
     openai_api_key: str
     openai_model: str = "gpt-4o-mini"
-    # OpenAI-compatible endpoint. Empty = api.openai.com. The RAG eval in CI uses the free
-    # GitHub Models API (https://models.github.ai/inference) — see docs/rag-evaluation.md.
-    openai_base_url: str = ""
-    # Embeddings for the knowledge index. Part of the index fingerprint: changing it re-indexes.
-    openai_embedding_model: str = "text-embedding-3-small"
     rag_k: int = 3
     # Chroma L2 distance via similarity_search_with_score: **lower is better**.
     # Scores worse than (greater than) this threshold → low RAG confidence → force High.

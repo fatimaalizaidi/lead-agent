@@ -1,6 +1,7 @@
 # Lead Agent: Multi-Agent AI Sales & Support Assistant
 
 [![CI](https://github.com/fatimaalizaidi/lead-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/fatimaalizaidi/lead-agent/actions/workflows/ci.yml)
+[![RAG eval](https://github.com/fatimaalizaidi/lead-agent/actions/workflows/eval.yml/badge.svg)](https://github.com/fatimaalizaidi/lead-agent/actions/workflows/eval.yml)
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688)
 ![LangGraph](https://img.shields.io/badge/LangGraph-multi--agent-purple)
@@ -52,8 +53,9 @@ flowchart TB
 - **Multi-agent orchestration:** a LangGraph supervisor with Sales, Knowledge and Escalation agents, and OpenAI function calling for quotes, calendar slots and human hand-off.
 - **Hybrid RAG:** ChromaDB vector search plus BM25 keyword search, merged with Reciprocal Rank Fusion, with optional cross-encoder or Cohere re-ranking.
 - **Evaluation:** a Ragas harness (faithfulness, answer relevancy, context recall and precision) on a 26-question golden set, comparing retrieval modes.
+- **LLMOps quality gate:** a free GitHub Actions workflow scores retrieval on all 26 golden questions (top-1 accuracy, hit rate, MRR, fact recall) on every PR and `main` push that touches retrieval or the knowledge base, plus weekly, and **fails if any metric drops under its floor**, so Render won't deploy a regression. It needs no LLM or API key: vector search uses a local embedding model.
 - **Production-ready API:** FastAPI with strict JSON-schema outputs (Pydantic), input guardrails, soft fallbacks when retrieval fails, `X-Request-ID` correlation, and Redis conversation memory.
-- **CI/CD:** GitHub Actions runs ruff, **60 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
+- **CI/CD:** GitHub Actions runs ruff, **72 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
 - **Observability:** LangSmith traces every request (agent nodes, LLM calls, tools, retrieval steps), and structured JSON logs record latency, tokens, **cost in USD** and failed tool calls.
 - **Automation:** n8n workflows route leads to Slack or email by AI-assigned priority.
 

@@ -160,24 +160,3 @@ def test_retrieve_context_returns_later_chunks(tmp_path: Path, monkeypatch: pyte
         assert "Starter plan details" in chunks[0]["content"]
     finally:
         rag._vectorstore.delete_collection()
-
-
-def test_changing_embedding_model_forces_reindex(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Vectors from another embedding model must never be reused (same dimension, no error)."""
-    from config import get_settings
-
-    monkeypatch.setattr(get_settings(), "openai_embedding_model", "text-embedding-3-small")
-    small = rag._kb_fingerprint()
-    monkeypatch.setattr(get_settings(), "openai_embedding_model", "openai/text-embedding-3-small")
-    assert rag._kb_fingerprint() != small
-
-
-def test_embeddings_use_configured_model_and_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
-    from config import get_settings
-
-    monkeypatch.setattr(get_settings(), "openai_embedding_model", "openai/text-embedding-3-small")
-    monkeypatch.setattr(get_settings(), "openai_base_url", "https://models.github.ai/inference")
-    emb = rag._embeddings()
-    assert emb.model == "openai/text-embedding-3-small"
-    assert emb.openai_api_base == "https://models.github.ai/inference"
-    assert emb.check_embedding_ctx_length is False

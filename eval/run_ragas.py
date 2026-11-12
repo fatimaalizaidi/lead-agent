@@ -11,12 +11,11 @@ Usage (from the repo root, after ``pip install -r requirements-dev.txt``):
     python -m eval.run_ragas --compare            # all three modes side by side
     python -m eval.run_ragas --limit 5            # quick smoke run
     python -m eval.run_ragas --fail-under 0.8     # exit 1 if any metric mean < 0.8
-    python -m eval.run_ragas --gate --per-source 2  # CI quality gate: per-metric floors in
-                                                  # eval/thresholds.json, 2 questions per article
+    python -m eval.run_ragas --gate --per-source 2  # per-metric floors in eval/thresholds.json,
+                                                  # 2 questions per article
 
-Costs OpenAI calls (answers + judge) unless OPENAI_BASE_URL points at a free OpenAI-compatible
-API: the CI gate (.github/workflows/eval.yml) uses GitHub Models with the workflow's own token.
-Results land in ``eval/results/`` (git-ignored).
+Costs OpenAI calls (answers + judge, about $0.01 for 10 questions); results land in
+``eval/results/`` (git-ignored). The free CI gate is ``eval/retrieval_gate.py`` instead.
 """
 
 from __future__ import annotations
@@ -149,7 +148,7 @@ def score_samples(
     """Grade samples with Ragas; returns a pandas DataFrame (one row per sample).
 
     ``strictness`` is how many questions Answer Relevancy generates per answer. ``max_workers``
-    caps parallel judge calls; free APIs allow ~15 requests/minute, so CI uses 2.
+    caps parallel judge calls (lower it if you hit OpenAI rate limits).
     """
     from langchain_openai import ChatOpenAI, OpenAIEmbeddings
     from ragas import EvaluationDataset, RunConfig, evaluate
@@ -159,8 +158,7 @@ def score_samples(
 
     from config import get_settings
 
-    settings = get_settings()
-    client_args = {"api_key": settings.openai_api_key, "base_url": settings.openai_base_url or None}
+    key = get_settings().openai_api_key
     result = evaluate(
         dataset=EvaluationDataset.from_list(samples),
         metrics=[
@@ -169,14 +167,8 @@ def score_samples(
             ContextRecall(),
             ContextPrecision(),
         ],
-        llm=LangchainLLMWrapper(ChatOpenAI(model=judge_model, temperature=0, **client_args)),
-        embeddings=LangchainEmbeddingsWrapper(
-            OpenAIEmbeddings(
-                model=settings.openai_embedding_model,
-                check_embedding_ctx_length=False,
-                **client_args,
-            )
-        ),
+        llm=LangchainLLMWrapper(ChatOpenAI(model=judge_model, temperature=0, api_key=key)),
+        embeddings=LangchainEmbeddingsWrapper(OpenAIEmbeddings(api_key=key)),
         # Rate-limit (429) errors are retried with exponential backoff up to max_wait seconds.
         run_config=RunConfig(max_workers=max_workers, max_retries=10, max_wait=90, timeout=180),
         show_progress=True,

@@ -29,10 +29,44 @@ python -m eval.run_ragas --compare         # vector vs hybrid vs hybrid + re-ran
 python -m eval.run_ragas --mode vector     # one mode: configured | vector | hybrid | hybrid-rerank
 python -m eval.run_ragas --limit 5         # first 5 questions only (quick check)
 python -m eval.run_ragas --judge-model gpt-4o
-python -m eval.run_ragas --fail-under 0.8  # exit 1 if any metric mean is below 0.8 (for CI)
+python -m eval.run_ragas --fail-under 0.8  # exit 1 if any metric mean is below 0.8
+python -m eval.run_ragas --gate --per-source 2   # the CI gate: per-metric floors, 10 questions
 ```
 
 It needs a real `OPENAI_API_KEY`. A full `--compare` run makes a few hundred `gpt-4o-mini` calls plus embeddings, takes about 5 minutes, and costs cents. You may see `RuntimeError: Event loop is closed` messages while it runs; they come from OpenAI clients being cleaned up between runs and don't affect the scores.
+
+## Retrieval gate in CI (free)
+
+`eval/retrieval_gate.py` is a second, LLM-free evaluation that runs in CI (`.github/workflows/eval.yml`). It runs the real `retrieve_context()` on all 26 golden questions and scores:
+
+| Metric | What it checks |
+|---|---|
+| **top1_accuracy** | The question's source article is ranked first |
+| **hit_rate** | The source article is retrieved at all (top `RAG_K`) |
+| **mrr** | Mean reciprocal rank of the source article |
+| **fact_recall** | The reference answer's key facts (prices, percentages, hours, day counts) appear in the retrieved text, a cheap stand-in for context recall |
+
+It fails if any metric is under its floor in `eval/retrieval_thresholds.json`. The only difference from production is the embedding model: vector search uses Chroma's bundled all-MiniLM-L6-v2 (local, CPU) in a temporary index, so it needs no API key and never touches `data/chroma`.
+
+```bash
+python -m eval.retrieval_gate              # production mode (hybrid, no re-ranker); exit 1 if under a floor
+python -m eval.retrieval_gate --compare    # vector vs hybrid vs hybrid + re-rank
+python -m eval.retrieval_gate --no-gate    # scores only
+```
+
+**Baseline (2026-11-12, 26 questions, local embeddings):**
+
+| Mode | Top-1 accuracy | Hit rate | MRR | Fact recall |
+|---|---|---|---|---|
+| vector | 0.846 | 1.000 | 0.917 | 1.000 |
+| hybrid (production) | 0.885 | 1.000 | 0.942 | 1.000 |
+| hybrid + re-rank | 0.962 | 1.000 | 0.981 | 1.000 |
+
+**Does it catch real bugs?** Re-introducing the old "one chunk per article" bug drops fact recall to 0.964 (the Starter price `$49` is no longer retrieved), and the gate fails. Switching production to vector-only search fails on MRR (0.917 against a 0.92 floor).
+
+Retrieval is deterministic, so each floor sits just under the baseline with about one question of slack. Raise a floor in the same PR as a change that improves it.
+
+The Ragas run above is still the full evaluation: faithfulness and answer relevancy need an LLM judge, so it stays a manual step (`--gate` uses the floors in `eval/thresholds.json`).
 
 `pytest` covers the harness offline (`tests/test_ragas_eval.py`) and never calls OpenAI or Ragas.
 

@@ -23,7 +23,16 @@ None of these need secrets. The tests mock OpenAI, Redis and the webhooks (`test
 
 **One-time step in Render:** the blueprint setting only applies if the service was created from the blueprint (or is synced to it). Otherwise, open the service in the Render dashboard → **Settings → Build & Deploy → Auto-Deploy** and choose **After CI Checks Pass**.
 
-The Ragas evaluation (`python -m eval.run_ragas`) isn't part of CI, because it makes real OpenAI calls. Run it by hand before changing retrieval or prompts; see [rag-evaluation.md](./rag-evaluation.md).
+## Retrieval quality gate (`eval.yml`)
+
+A second workflow, **RAG eval**, checks retrieval quality rather than code. `python -m eval.retrieval_gate` runs the real retrieval pipeline on all 26 golden questions and fails if top-1 accuracy, hit rate, MRR or fact recall drops under its floor in `eval/retrieval_thresholds.json`.
+
+- **When:** pull requests and pushes to `main` that change `rag.py`, `config.py`, `knowledge/`, `eval/` or the requirements; every Monday at 06:00 UTC (catches drift in library versions); and on demand (Actions → RAG eval → Run workflow).
+- **Blocks bad deploys:** it also runs on those pushes to `main`, and Render's *After CI checks pass* waits for every check on the commit, so a retrieval regression never goes live.
+- **Cost: none.** No LLM and no API key: vector search uses Chroma's bundled local embedding model (all-MiniLM-L6-v2, cached between runs) instead of OpenAI. It takes about a minute.
+- **Results:** the score table and any missed questions are on the run's summary page; per-question CSVs are attached as the `retrieval-results` artifact.
+
+The full Ragas evaluation (faithfulness and answer relevancy, which need an LLM judge) stays a manual step, about $0.01 per 10 questions: see [rag-evaluation.md](./rag-evaluation.md). Don't make the gate a required check: it only runs when the paths above change, so a required check would sit at "pending" forever on other PRs.
 
 ## Running the same checks locally
 

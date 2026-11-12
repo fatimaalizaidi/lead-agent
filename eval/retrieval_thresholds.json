@@ -1,0 +1,7 @@
+{
+  "_comment": "Floors for the free retrieval gate (python -m eval.retrieval_gate). Baseline 2026-11-12, hybrid mode (production), 26 questions: top1_accuracy 0.885, hit_rate 1.0, mrr 0.942, fact_recall 1.0. Retrieval is deterministic, so each floor allows about one question of slack. Raise a floor when a change improves it.",
+  "top1_accuracy": 0.84,
+  "hit_rate": 0.96,
+  "mrr": 0.92,
+  "fact_recall": 0.97
+}

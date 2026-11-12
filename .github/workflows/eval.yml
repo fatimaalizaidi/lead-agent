@@ -1,0 +1,86 @@
+# Retrieval quality gate: fails if RAG retrieval gets worse. Free: no LLM, no API key, no secrets.
+#
+# Runs the real retrieval pipeline (rag.retrieve_context) on all 26 golden questions and checks
+# top-1 accuracy, hit rate, MRR and fact recall against eval/retrieval_thresholds.json. Vector
+# search uses Chroma's bundled local embedding model (all-MiniLM-L6-v2 on CPU) instead of OpenAI.
+# See docs/rag-evaluation.md. The full Ragas eval (LLM judge, ~$0.01) stays a manual step:
+# python -m eval.run_ragas.
+#
+# When: pull requests and pushes to main that touch retrieval, the knowledge base or the eval;
+# every Monday (catches drift in library versions); and on demand from the Actions tab. Because it
+# also runs on pushes to main, Render's "After CI checks pass" waits for it before deploying a
+# retrieval change.
+
+name: RAG eval
+
+on:
+  pull_request:
+    paths:
+      - "rag.py"
+      - "config.py"
+      - "knowledge/**"
+      - "eval/**"
+      - "requirements*.txt"
+      - ".github/workflows/eval.yml"
+  push:
+    branches: [main]
+    paths: # same list as pull_request
+      - "rag.py"
+      - "config.py"
+      - "knowledge/**"
+      - "eval/**"
+      - "requirements*.txt"
+      - ".github/workflows/eval.yml"
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: eval-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.13"
+  HNSWLIB_NO_NATIVE: "1" # see ci.yml
+  # Production retrieval settings (render.yaml). Nothing calls OpenAI; Settings just needs a value.
+  OPENAI_API_KEY: not-used
+  RAG_HYBRID: "true"
+  RAG_RERANKER: none
+  LANGSMITH_TRACING: "false"
+
+jobs:
+  retrieval:
+    name: Retrieval quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install --no-cache-dir -r requirements-dev.txt
+
+      # The ~80 MB embedding model (model files only; no compiled code, so caching is safe).
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/chroma/onnx_models
+          key: chroma-onnx-all-MiniLM-L6-v2
+
+      - name: Score retrieval and apply the gate
+        run: python -m eval.retrieval_gate
+
+      - name: Write scores to the job summary
+        if: always()
+        run: cat eval/results/*-retrieval-gate.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "No scores (the gate did not finish)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload per-question results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrieval-results
+          path: eval/results/
+          if-no-files-found: ignore
+          retention-days: 90

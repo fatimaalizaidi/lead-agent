@@ -103,3 +103,50 @@ def test_summarize_and_threshold() -> None:
     assert summary == {"faithfulness": 0.75, "answer_relevancy": 0.8}
     assert run_ragas.failing_metrics(summary, 0.8) == ["faithfulness"]
     assert run_ragas.failing_metrics(summary, None) == []
+
+
+def test_pick_per_source_covers_every_article() -> None:
+    golden = run_ragas.load_golden()
+    picked = run_ragas.pick_per_source(golden, 2)
+    sources = {row["source"] for row in golden}
+    assert {row["source"] for row in picked} == sources
+    assert len(picked) == 2 * len(sources)
+    assert picked == [row for row in golden if row in picked], "keeps golden order"
+
+
+def test_thresholds_file_is_valid(tmp_path: Path) -> None:
+    thresholds = run_ragas.load_thresholds()
+    assert set(thresholds) == set(run_ragas.METRIC_COLUMNS)
+    assert all(0 < v < 1 for v in thresholds.values())
+
+    bad = tmp_path / "t.json"
+    bad.write_text('{"_comment": "x", "faithfullness": 0.5}')
+    with pytest.raises(ValueError, match="faithfullness"):
+        run_ragas.load_thresholds(bad)
+
+
+def test_gate_failures_and_report() -> None:
+    thresholds = {"faithfulness": 0.65, "context_recall": 0.8, "context_precision": 0.85}
+    summary = {"faithfulness": 0.7, "context_recall": 0.75, "answer_relevancy": 0.1}
+    # recall is under its floor; precision has no score at all (judge failed) — both fail.
+    # answer_relevancy has no floor here, so it never fails.
+    assert run_ragas.gate_failures(summary, thresholds) == ["context_recall", "context_precision"]
+
+    report = run_ragas.gate_report_md(summary, thresholds, mode="hybrid", questions=10, judge_model="m")
+    assert "❌ failed" in report
+    assert "| context_recall | 0.750 | 0.80 | ❌ |" in report
+    assert "| context_precision | no score | 0.85 | ❌ |" in report
+    assert "| faithfulness | 0.700 | 0.65 | ✅ |" in report
+    assert "| answer_relevancy | 0.100 | - |  |" in report
+
+    passed = run_ragas.gate_report_md(
+        {"faithfulness": 0.9}, {"faithfulness": 0.65}, mode="hybrid", questions=10, judge_model="m"
+    )
+    assert "✅ passed" in passed
+
+
+def test_parse_args_gate_options() -> None:
+    args = run_ragas.parse_args(["--gate", "--per-source", "2", "--strictness", "1", "--max-workers", "2"])
+    assert (args.gate, args.per_source, args.strictness, args.max_workers) == (True, 2, 1, 2)
+    defaults = run_ragas.parse_args([])
+    assert (defaults.gate, defaults.per_source, defaults.strictness) == (False, None, 3)

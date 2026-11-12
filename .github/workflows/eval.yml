@@ -1,0 +1,88 @@
+# RAG quality gate: runs the Ragas evaluation and fails if answer quality drops.
+#
+# Free: the Knowledge Agent and the Ragas judge call GitHub Models (gpt-4o-mini and
+# text-embedding-3-small) with this workflow's own GITHUB_TOKEN (`models: read`). No OpenAI key,
+# no secrets, no cost. The free tier allows ~150 chat requests a day and ~15 a minute, so the gate
+# scores 10 questions (2 per knowledge article, about 80 judge calls) with 2 parallel workers.
+#
+# When it runs: on pull requests that touch retrieval, prompts, the knowledge base or the eval,
+# every Monday (to catch drift in the model or the libraries), and on demand from the Actions tab.
+# Floors per metric live in eval/thresholds.json. See docs/rag-evaluation.md.
+
+name: RAG eval
+
+on:
+  pull_request:
+    paths:
+      - "rag.py"
+      - "multiagent.py"
+      - "config.py"
+      - "knowledge/**"
+      - "eval/**"
+      - "requirements*.txt"
+      - ".github/workflows/eval.yml"
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      per_source:
+        description: "Questions per knowledge article (5 articles; 2 = 10 questions, the free-tier budget)"
+        default: "2"
+        required: true
+
+concurrency:
+  group: eval-${{ github.ref }}
+  cancel-in-progress: true # a newer push makes the older run's scores irrelevant; saves quota
+
+permissions:
+  contents: read
+  models: read # GitHub Models inference with GITHUB_TOKEN
+
+env:
+  PYTHON_VERSION: "3.13"
+  HNSWLIB_NO_NATIVE: "1" # see ci.yml
+  # Production retrieval settings (render.yaml), served by GitHub Models instead of OpenAI.
+  OPENAI_API_KEY: ${{ secrets.GITHUB_TOKEN }}
+  OPENAI_BASE_URL: https://models.github.ai/inference
+  OPENAI_MODEL: openai/gpt-4o-mini
+  OPENAI_EMBEDDING_MODEL: openai/text-embedding-3-small
+  RAG_HYBRID: "true"
+  RAG_RERANKER: none
+  LANGSMITH_TRACING: "false"
+
+jobs:
+  eval:
+    name: Ragas quality gate
+    # Fork PRs get a token without `models: read`.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install --no-cache-dir -r requirements-dev.txt
+
+      - name: Run Ragas and apply the gate
+        env:
+          PER_SOURCE: ${{ inputs.per_source || '2' }}
+        run: >-
+          python -m eval.run_ragas
+          --gate
+          --per-source "$PER_SOURCE"
+          --strictness 1
+          --max-workers 2
+
+      - name: Write scores to the job summary
+        if: always()
+        run: cat eval/results/*-gate.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "No scores (eval did not finish)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload per-question scores
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ragas-results
+          path: eval/results/
+          if-no-files-found: ignore
+          retention-days: 90

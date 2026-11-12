@@ -61,12 +61,22 @@ def _default_k() -> int:
 
 
 def _embeddings() -> OpenAIEmbeddings:
-    return OpenAIEmbeddings(api_key=_require_api_key())
+    settings = get_settings()
+    return OpenAIEmbeddings(
+        model=settings.openai_embedding_model,
+        api_key=_require_api_key(),
+        base_url=settings.openai_base_url or None,
+        # Send plain strings, not tiktoken ids: chunks are ~800 chars (far below the 8k-token
+        # limit) and OpenAI-compatible APIs such as GitHub Models only accept strings.
+        check_embedding_ctx_length=False,
+    )
 
 
 def _kb_fingerprint() -> str:
-    """Stable hash of knowledge/*.md paths + mtimes + sizes for cheap change detection."""
+    """Stable hash of the embedding model + knowledge/*.md paths, mtimes and sizes (cheap change check)."""
     h = hashlib.sha256()
+    # Vectors from another embedding model are meaningless (often the same dimension, so no error).
+    h.update(f"embedding_model:{get_settings().openai_embedding_model}\n".encode())
     if not KNOWLEDGE_DIR.is_dir():
         return h.hexdigest()
     for path in sorted(KNOWLEDGE_DIR.glob("*.md")):

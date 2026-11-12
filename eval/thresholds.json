@@ -1,0 +1,7 @@
+{
+  "_comment": "Minimum mean score per metric for the eval gate (python -m eval.run_ragas --gate). Baseline 2026-11-09, hybrid mode, 26 questions: faithfulness 0.77, answer_relevancy 0.69, context_recall 0.91, context_precision 0.96. Each floor sits about 0.1 under the baseline because the judge is an LLM and the CI subset is small; raise a floor when you improve that metric.",
+  "faithfulness": 0.65,
+  "answer_relevancy": 0.55,
+  "context_recall": 0.8,
+  "context_precision": 0.85
+}

@@ -32,6 +32,7 @@ No `.env` secrets are required. Tests set `OPENAI_API_KEY=sk-test-offline-key-no
 | `POST /analyze-lead` | `tests/test_analyze_lead.py` | Success, memory persist, RAG soft-fallback, validation |
 | `POST /agent-action` | `tests/test_agent_action.py` | Tool loop (quote) + no-tools reply |
 | `POST /multi-agent` | `tests/test_multi_agent.py` | Knowledge / Sales/Pricing / Escalation routes |
+| Auth + rate limits | `tests/test_security.py` | API keys, rotation, `/auth/token` JWTs (expired / tampered / revoked), 429s |
 
 ## What is mocked
 

@@ -46,7 +46,10 @@ flowchart TB
 | `POST /analyze-lead` | Triage: classifies a lead as High / Medium / Low priority, drafts a reply grounded in the knowledge base, and flags low-confidence answers for human review. n8n routes leads on this. |
 | `POST /multi-agent` | The assistant: the supervisor routes to Sales (custom quotes, demo slots), Knowledge (policy, SLA, pricing answers from RAG) or Escalation (Slack/email hand-off). |
 | `POST /agent-action` | Earlier single-agent version with tool calling, kept for the n8n workflow. |
+| `POST /auth/token` | OAuth2 client-credentials grant: trades an API key for a 1-hour JWT. |
 | `GET /health` | Liveness check for Render. Never calls OpenAI and is never traced. |
+
+The AI endpoints need an `X-API-Key` header or a bearer token once `API_KEYS` is set, and are rate-limited per key ([docs/security.md](docs/security.md)).
 
 ## Highlights
 
@@ -55,7 +58,8 @@ flowchart TB
 - **Evaluation:** a Ragas harness (faithfulness, answer relevancy, context recall and precision) on a 26-question golden set, comparing retrieval modes.
 - **LLMOps quality gate:** a free GitHub Actions workflow scores retrieval on all 26 golden questions (top-1 accuracy, hit rate, MRR, fact recall) on every PR and `main` push that touches retrieval or the knowledge base, plus weekly, and **fails if any metric drops under its floor**, so Render won't deploy a regression. It needs no LLM or API key: vector search uses a local embedding model.
 - **Production-ready API:** FastAPI with strict JSON-schema outputs (Pydantic), input guardrails, soft fallbacks when retrieval fails, `X-Request-ID` correlation, and Redis conversation memory.
-- **CI/CD:** GitHub Actions runs ruff, **72 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
+- **API security:** API keys with zero-downtime rotation, OAuth2 client-credentials JWTs (revoked along with their key), and per-key `slowapi` rate limiting that returns 429 with `Retry-After`.
+- **CI/CD:** GitHub Actions runs ruff, **96 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
 - **Observability:** LangSmith traces every request (agent nodes, LLM calls, tools, retrieval steps), and structured JSON logs record latency, tokens, **cost in USD** and failed tool calls.
 - **Automation:** n8n workflows route leads to Slack or email by AI-assigned priority.
 
@@ -93,7 +97,7 @@ flowchart TB
 
 ## Tech stack
 
-Python 3.13 · FastAPI · Pydantic · OpenAI (gpt-4o-mini, embeddings) · LangGraph · LangChain · ChromaDB · rank-bm25 · FlashRank / Cohere Rerank · Ragas · Redis · LangSmith · loguru · pytest · ruff · Docker · GitHub Actions · Render · n8n
+Python 3.13 · FastAPI · Pydantic · OpenAI (gpt-4o-mini, embeddings) · LangGraph · LangChain · ChromaDB · rank-bm25 · FlashRank / Cohere Rerank · Ragas · Redis · slowapi · PyJWT · LangSmith · loguru · pytest · ruff · Docker · GitHub Actions · Render · n8n
 
 All guides (RAG, agents, memory, guardrails, n8n, deploy, testing): **[docs/](./docs/)**
 
@@ -177,6 +181,7 @@ Example response shape:
 |--------|------|-------------|
 | `GET` | `/health` | Liveness check |
 | `POST` | `/analyze-lead` | Analyze a lead message (with RAG context) |
+| `POST` | `/auth/token` | API key → JWT (OAuth2 client credentials, [docs](./docs/security.md)) |
 | `POST` | `/multi-agent` | LangGraph supervisor → Sales / Knowledge / Escalation agents ([docs](./docs/multi-agent-langgraph.md)) |
 | `POST` | `/agent-action` | Single agent with tool calling ([docs](./docs/agent-tools.md)) |
 

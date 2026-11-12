@@ -53,6 +53,21 @@ class Settings(BaseSettings):
     llm_price_input_per_1m: float | None = None
     llm_price_output_per_1m: float | None = None
 
+    # API authentication (security.py, docs/security.md). Comma-separated "key_id:secret" pairs,
+    # e.g. "n8n:la_...,demo:la_...". Several keys at once = rotation without downtime.
+    # Empty = auth OFF (a warning is logged at startup). Generate one: python -m security new-key n8n
+    api_keys: str = ""
+    # HS256 secret for POST /auth/token (OAuth2 client credentials). Empty = JWT disabled,
+    # API keys still work. Never log or return it.
+    jwt_secret: str = ""
+    jwt_ttl_seconds: int = 3600
+    # Rate limits (slowapi / limits syntax). AI endpoints are limited per API key (per IP when
+    # auth is off); the token endpoint per IP. Storage: memory:// (one instance) or redis://...
+    rate_limit_enabled: bool = True
+    rate_limit: str = "20/minute;200/day"
+    rate_limit_token: str = "10/minute"
+    rate_limit_storage_uri: str = "memory://"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

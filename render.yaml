@@ -30,3 +30,8 @@ services:
       # Hybrid search without it scored 0.91 vs 0.93 context recall (docs/rag-evaluation.md).
       - key: RAG_RERANKER
         value: none
+      # API security (docs/security.md). Generate with: python -m security new-key n8n
+      - key: API_KEYS
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true

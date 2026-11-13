@@ -20,3 +20,7 @@ langsmith==0.3.45
 httpx==0.28.1
 rank-bm25==0.2.2
 flashrank==0.2.10
+# API security (security.py): rate limiting, JWT, form parsing for POST /auth/token.
+slowapi==0.1.9
+PyJWT==2.10.1
+python-multipart==0.0.20

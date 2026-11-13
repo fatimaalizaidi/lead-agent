@@ -30,6 +30,16 @@ def _reset_settings_cache() -> Iterator[None]:
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> Iterator[None]:
+    """Rate-limit counters live in process memory; start every test with a clean slate."""
+    from security import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
 @pytest.fixture
 def fake_redis() -> Iterator[fakeredis.FakeRedis]:
     """In-memory Redis stand-in so conversation memory works without a live server."""

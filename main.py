@@ -1,7 +1,7 @@
 """Lead Analyzer — FastAPI app that classifies leads with OpenAI + local RAG."""
 
-from __future__ import annotations
-
+# No `from __future__ import annotations`: slowapi wraps the endpoints (security.limit_ai) and
+# FastAPI can't resolve string annotations through the wrapper (request bodies turn into 400s).
 import asyncio
 import json
 import time
@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Any
 
 import openai
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
 from loguru import logger
 from pydantic import BaseModel, EmailStr, Field, ValidationError, field_validator
 
@@ -48,6 +48,8 @@ from rag import (
     knowledge_source_titles,
     retrieve_context,
 )
+from security import install as install_security
+from security import limit_ai, require_client
 from tracing import TracingMiddleware, configure_tracing, wrap_client
 
 setup_logging()
@@ -178,6 +180,7 @@ app = FastAPI(
 app.add_middleware(TracingMiddleware)
 app.add_middleware(RequestIdMiddleware)
 register_exception_handlers(app)
+install_security(app)
 
 
 def _openai_strict_schema(model: type[BaseModel]) -> dict[str, Any]:
@@ -422,8 +425,10 @@ async def health() -> dict[str, str]:
         500: {"model": ErrorBody},
         502: {"model": ErrorBody},
     },
+    dependencies=[Depends(require_client)],
 )
-async def analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
+@limit_ai
+async def analyze_lead(request: Request, body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
     """Classify lead priority and generate a suggested response via OpenAI + RAG.
 
     Async so concurrent n8n webhooks can stay in flight: each request awaits OpenAI
@@ -535,8 +540,10 @@ async def analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
         500: {"model": ErrorBody},
         502: {"model": ErrorBody},
     },
+    dependencies=[Depends(require_client)],
 )
-async def agent_action(body: AgentActionRequest) -> AgentActionResponse:
+@limit_ai
+async def agent_action(request: Request, body: AgentActionRequest) -> AgentActionResponse:
     """Run an autonomous agent turn with OpenAI tool calling.
 
     The model chooses among ``calculate_custom_quote``, ``check_calendar_availability``,
@@ -597,8 +604,10 @@ async def agent_action(body: AgentActionRequest) -> AgentActionResponse:
         500: {"model": ErrorBody},
         502: {"model": ErrorBody},
     },
+    dependencies=[Depends(require_client)],
 )
-async def multi_agent(body: MultiAgentRequest) -> MultiAgentResponse:
+@limit_ai
+async def multi_agent(request: Request, body: MultiAgentRequest) -> MultiAgentResponse:
     """LangGraph supervisor that analyzes intent and delegates to specialists.
 
     - **Sales/Pricing** — seat and tier quotes (`calculate_custom_quote`) plus calendar

@@ -74,6 +74,16 @@ Body (Postman / curl):
 
 ## Credentials Ali must paste
 
+### API key for Lead Agent (required once `API_KEYS` is set)
+
+When the API has `API_KEYS` set (always the case on Render), every call to `/analyze-lead`, `/multi-agent` and `/agent-action` needs an API key, or it returns `401 missing_credentials`. See [security.md](./security.md).
+
+1. Generate a key: `python -m security new-key n8n` prints `n8n:la_…`. Add the whole line to the API's `API_KEYS`.
+2. In n8n: **Credentials → Add credential → Header Auth**. Set **Name** to `X-API-Key` and **Value** to the `la_…` part only (without `n8n:`).
+3. Open the **Analyze Lead** HTTP Request node → **Authentication: Generic Credential Type** → **Generic Auth Type: Header Auth** → pick that credential. Do the same on any extra HTTP Request node, such as `/agent-action`.
+
+Keep the key in an n8n credential rather than a plain header parameter: credentials are encrypted and aren't included when you export the workflow JSON. Running the API locally with `API_KEYS` empty turns auth off, and the header is then ignored.
+
 ### High — Slack Incoming Webhook (required for live notify)
 
 1. [api.slack.com/apps](https://api.slack.com/apps) → Create App → **Incoming Webhooks** → On → **Add New Webhook to Workspace**.
@@ -175,6 +185,7 @@ Expect: SMTP send when credential configured; JSON with `"priority":"Low"` and b
 ```bash
 curl -sS -X POST "http://127.0.0.1:8000/analyze-lead" \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: la_..." \
   -d '{"email":"jane@startup.io","message":"Curious about your product for a small team of 5. Not urgent — just researching options for next quarter."}'
 ```
 
@@ -186,6 +197,8 @@ Useful after Medium/High when you want quote / calendar / escalate tools. Add an
 
 | Symptom | Check |
 |---------|--------|
+| Analyze Lead returns 401 | `missing_credentials`: the node has no Header Auth credential. `invalid_api_key`: the value is wrong. Use only the `la_…` part, not `n8n:la_…` |
+| Analyze Lead returns 429 `rate_limited` | Over `RATE_LIMIT` (default 20/minute per key). Wait `Retry-After` seconds, or raise the limit on the API |
 | Analyze Lead fails / timeout | `curl http://127.0.0.1:8000/health`; from container: `wget -qO- http://host.docker.internal:8000/health` |
 | Always Other branch | Inspect Analyze Lead output for `priority` |
 | Slack 404 / invalid_token | Webhook URL not replaced |

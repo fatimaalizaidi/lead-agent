@@ -12,3 +12,4 @@ select = ["E", "F", "W", "I", "B", "UP"]
 [tool.ruff.lint.per-file-ignores]
 # Prompt templates and test fixtures carry long literal strings.
 "tests/*" = ["E501"]
+"finetune/generate_dataset.py" = ["E501"]

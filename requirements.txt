@@ -26,3 +26,7 @@ PyJWT==2.10.1
 python-multipart==0.0.20
 # Background job queue (jobs.py) on Redis.
 arq==0.26.3
+# Fine-tuned priority classifier (classifier.py). Already pulled in by chromadb; pinned because
+# the app now imports them directly.
+onnxruntime==1.31.0
+tokenizers==0.23.3

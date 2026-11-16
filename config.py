@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     # Polling GET /jobs/{id} has its own, looser per-key limit.
     rate_limit_poll: str = "120/minute"
 
+    # Fine-tuned priority classifier (classifier.py, docs/fine-tuning.md): int8 ONNX model +
+    # tokenizer from finetune/train_lora.py. Missing files → POST /classify-priority returns 503.
+    priority_model_dir: str = "finetune/model"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

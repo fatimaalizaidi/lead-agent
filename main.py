@@ -14,6 +14,7 @@ from fastapi import Depends, FastAPI, Request
 from loguru import logger
 from pydantic import BaseModel, EmailStr, Field, ValidationError, field_validator
 
+import classifier
 import jobs
 from agent import (
     AgentActionRequest,
@@ -680,6 +681,55 @@ async def run_multi_agent_request(body: MultiAgentRequest) -> MultiAgentResponse
             "Multi-agent run failed due to an upstream error.",
             error_code="openai_unexpected",
         ) from exc
+
+
+# ---- Fine-tuned priority classifier (classifier.py, docs/fine-tuning.md) ------------------------
+
+
+class ClassifyPriorityRequest(BaseModel):
+    message: str = Field(..., min_length=1, description="Lead message text")
+
+    @field_validator("message")
+    @classmethod
+    def sanitize_message_field(cls, value: str) -> str:
+        return sanitize_message(value)
+
+
+class ClassifyPriorityResponse(BaseModel):
+    priority: Priority
+    confidence: float = Field(..., description="Probability of the predicted label (0–1)")
+    scores: dict[str, float] = Field(..., description="Probability per label")
+    model: str = Field(..., description="Model version, e.g. lora-all-MiniLM-L6-v2")
+    latency_ms: float
+
+
+@app.post(
+    "/classify-priority",
+    response_model=ClassifyPriorityResponse,
+    responses={status: {"model": ErrorBody} for status in (400, 401, 429, 503)},
+    dependencies=[Depends(require_client)],
+)
+@limit_ai
+async def classify_priority(request: Request, body: ClassifyPriorityRequest) -> ClassifyPriorityResponse:
+    """Priority only, from the local fine-tuned model: no OpenAI call, no cost, a few ms.
+
+    Use it as a cheap first pass (e.g. in n8n, skip the LLM for confident Low leads) and call
+    ``/analyze-lead`` when you also need a drafted reply. 503 when the model isn't deployed.
+    """
+    started = time.perf_counter()
+    model = classifier.get_classifier()
+    prediction = await asyncio.to_thread(model.predict, body.message)
+    latency = elapsed_ms(started)
+    logger.info(
+        "classify-priority label={} confidence={} latency_ms={}", prediction.label, prediction.confidence, latency
+    )
+    return ClassifyPriorityResponse(
+        priority=Priority(prediction.label),
+        confidence=prediction.confidence,
+        scores=prediction.scores,
+        model=model.version,
+        latency_ms=latency,
+    )
 
 
 # ---- Background jobs (jobs.py, docs/job-queue.md) ----------------------------------------------

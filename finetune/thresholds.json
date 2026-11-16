@@ -1,0 +1,6 @@
+{
+  "_comment": "Floors for python -m finetune.evaluate on the hand-written test set (84 leads). Shipped model: accuracy 0.857, macro_f1 0.855, high_recall 1.0. LoRA over 4 seeds: accuracy 0.83-0.94, high_recall 0.96-1.0.",
+  "accuracy": 0.8,
+  "macro_f1": 0.8,
+  "high_recall": 0.95
+}

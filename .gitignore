@@ -11,6 +11,8 @@ __pycache__/
 data/
 # The fine-tuning dataset is source, not runtime data (finetune/generate_dataset.py, test.jsonl).
 !finetune/data/
+# Exported production leads (finetune/export_langsmith.py): real customer text, never commit.
+finetune/data/private/
 data/chroma/
 logs/
 models/

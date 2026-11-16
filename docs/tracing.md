@@ -60,6 +60,10 @@ A failed tool call logs at **WARNING**: `tool name=trigger_slack_workflow ok=Fal
 
 Traces include prompts, retrieved knowledge and lead messages, which may contain names and email addresses. Set `LANGSMITH_HIDE_INPUTS=true` to send traces without inputs. You still get the tree, timings, tokens and costs, but no message text. API keys are never sent.
 
+## Training data from traces
+
+`/analyze-lead` traces double as a labelled dataset: `python -m finetune.export_langsmith` turns gpt-4o-mini's priorities into training data for the local classifier ([fine-tuning.md](./fine-tuning.md)). It needs traces with inputs, so it doesn't work with `LANGSMITH_HIDE_INPUTS=true`.
+
 ## Code map
 
 | Piece | File |

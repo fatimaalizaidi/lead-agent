@@ -63,7 +63,7 @@ The AI endpoints need an `X-API-Key` header or a bearer token once `API_KEYS` is
 - **Background job queue:** `POST /jobs/*` returns `202` at once and an arq worker on Redis runs the AI call, with retries and backoff for OpenAI 429/502s and per-key job privacy. The worker runs inside the API on the free plan, or as separately scaled services (`docker compose up --scale worker=3`).
 - **Fine-tuning:** a LoRA fine-tuned all-MiniLM-L6-v2 classifier (0.33% of weights trained, 17 s on a laptop), merged and exported to int8 ONNX (23 MB), serves `POST /classify-priority` in ~2 ms with no OpenAI cost. On 84 hand-written test leads: **85.7% accuracy and 100% High recall**, vs 72.6% for a frozen-encoder baseline. CI fails if a retrained model drops under its floors.
 - **API security:** API keys with zero-downtime rotation, OAuth2 client-credentials JWTs (revoked along with their key), and per-key `slowapi` rate limiting that returns 429 with `Retry-After`.
-- **CI/CD:** GitHub Actions runs ruff, **121 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
+- **CI/CD:** GitHub Actions runs ruff, **142 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
 - **Observability:** LangSmith traces every request (agent nodes, LLM calls, tools, retrieval steps), and structured JSON logs record latency, tokens, **cost in USD** and failed tool calls.
 - **Automation:** n8n workflows route leads to Slack or email by AI-assigned priority.
 
@@ -250,7 +250,7 @@ Applied in `AnalyzeLeadRequest` validators **before** RAG/LLM:
 
 - Strip control characters and normalize whitespace
 - Reject messages longer than **6000** characters (`error_code: message_too_long`)
-- Block obvious prompt-injection / jailbreak patterns (`error_code: prompt_injection_blocked`)
+- Block obvious prompt-injection / jailbreak patterns (`error_code: prompt_injection_blocked`): override phrases, `[INST]` tags, `<system>` tags and `system:` / `assistant:` role labels at the start of a line. A test runs all 1,464 leads in `finetune/data` through it and requires zero false positives.
 - Normalize email (lowercase); light format sanity checks on top of `EmailStr`
 
 Bad input → **HTTP 400** with `{ "detail": "...", "error_code": "..." }`.

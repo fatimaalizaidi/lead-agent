@@ -34,7 +34,8 @@ What the numbers show:
 
 ```
 generate_dataset.py ─▶ train.jsonl (1,200) + val.jsonl (180)   seeded templates, rubric labels
-        │                         [optional] label_with_teacher.py ─▶ gpt-4o-mini labels (distillation)
+export_langsmith.py ─▶ private/train_mix.jsonl + production_test.jsonl   gpt-4o-mini's labels on real traffic
+        │                         [optional] label_with_teacher.py ─▶ gpt-4o-mini labels on synthetic leads
         ▼
 train_lora.py   all-MiniLM-L6-v2 + LoRA(r=8, q/v) + 3-way head ─▶ merge ─▶ ONNX ─▶ int8 (23 MB)
         ▼
@@ -49,9 +50,30 @@ finetune/model/ ─▶ Docker image ─▶ POST /classify-priority
 4. **Serving** (`classifier.py`): onnxruntime + Hugging Face `tokenizers`, both already installed for Chroma. No torch in the image. The model loads lazily on the first request, single-threaded so it doesn't compete with uvicorn.
 5. **Gate:** `tests/test_classifier.py` runs `finetune/evaluate.py` on the committed model in CI. A retrained model under the floors in [finetune/thresholds.json](../finetune/thresholds.json) (accuracy 0.80, macro-F1 0.80, High recall 0.95) fails the build, so Render never deploys it.
 
-### Distillation with a teacher (optional)
+### Distillation from production logs (LangSmith)
 
-The shipped model learns from rubric labels. True distillation uses the production LLM as the teacher:
+The shipped model learns from rubric labels on synthetic leads. The real goal is to learn from **what gpt-4o-mini actually decided on real traffic**. Every `/analyze-lead` call (synchronous or background job) already leaves an LLM run in LangSmith, with the prompt and the model's JSON answer. `finetune/export_langsmith.py` turns those runs into a training set:
+
+```bash
+python -m finetune.export_langsmith --days 30          # needs LANGSMITH_API_KEY in .env
+.venv-train/bin/python -m finetune.train_lora --train-file finetune/data/private/train_mix.jsonl --out models/priority-prod
+python -m finetune.evaluate --model models/priority-prod --model finetune/model \
+    --test-file finetune/data/private/production_test.jsonl --no-gate     # new vs shipped, on real traffic
+```
+
+| Step | What it does |
+|---|---|
+| Find the runs | LLM runs from the last `--days`, kept only when the user message has the `/analyze-lead` shape (`email: …\nmessage: …\n\nCOMPANY KNOWLEDGE`). `/multi-agent` and `/agent-action` calls are skipped. |
+| Label | The model's own `priority` from its JSON answer: the **teacher label**. The app's later overrides (forcing High on low RAG confidence) aren't in it, so the student learns the model's judgement of the text. |
+| Clean | Skips failed runs, unparseable answers and follow-up turns (their priority depends on earlier messages the student never sees; `--include-followups` keeps them). Drops duplicates and any lead in the hand-written test set. |
+| Privacy | Drops the sender's email. Masks emails, phone numbers and URLs in the text as `[EMAIL]`, `[PHONE]` and `[URL]`. Writes only to `finetune/data/private/`, which is gitignored: **real customer text never goes into the public repo or the Docker image.** |
+| Split by time | The newest 20% (`--test-share`) becomes `production_test.jsonl` and is never trained on, so the score reflects future traffic, not memorised past traffic. The rest is added to the synthetic set in `train_mix.jsonl`. |
+
+It prints how many runs it read, why each skipped run was skipped, and the label mix. Tracing must be on in production with inputs visible: with `LANGSMITH_HIDE_INPUTS=true` the traces have no lead text, and the script says so. Under ~100 production leads, keep mixing with the synthetic set and re-export as traffic grows. Promote a new model by copying it to `finetune/model` only when it beats the shipped one on `production_test.jsonl` **and** passes the hand-written gate (`python -m finetune.evaluate`).
+
+### Teacher labels for the synthetic set (optional)
+
+Without production traffic, the production LLM can still label the synthetic leads:
 
 ```bash
 python -m finetune.label_with_teacher finetune/data/train.jsonl          # dry run: prints the cost
@@ -88,4 +110,4 @@ The same API keys, rate limits and input guardrails apply as on `/analyze-lead`.
 - **Why a small encoder, not a fine-tuned GPT:** the task is classification, not generation. A 22M-parameter encoder fits in the free Render container, answers in milliseconds and costs nothing per call. Fine-tuning gpt-4o-mini would still cost per token and add a network round trip.
 - **Why LoRA:** it trains 0.33% of the weights, so it trains in seconds on a laptop or free Colab, and it works much better than a frozen-encoder head (table above). After merging, the served model is identical in size and speed to a fully fine-tuned one.
 - **Why commit the model (23 MB) to git:** it keeps the deployed artifact, the gate and the code in one reviewed commit, with no model registry account needed. If retrains get frequent, move it to a GitHub Release or the Hugging Face Hub and pin it by SHA-256 in the Dockerfile.
-- **Limits:** the training data is synthetic and English-only, and 84 test leads give a confidence interval of a few points. Treat the classifier as a cheap first pass, not the final say. `/analyze-lead` remains the source of truth for routing.
+- **Limits:** until a LangSmith export is trained on, the training data is synthetic and English-only, and 84 test leads give a confidence interval of a few points. Treat the classifier as a cheap first pass, not the final say. `/analyze-lead` remains the source of truth for routing.

@@ -42,6 +42,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       MEMORY_TTL_SECONDS: ${MEMORY_TTL_SECONDS:-604800}
       MEMORY_MAX_MESSAGES: ${MEMORY_MAX_MESSAGES:-20}
+      # Jobs run in the separate `worker` service below, not inside the API.
+      JOB_WORKER_IN_PROCESS: "false"
     volumes:
       # rag.py persists under /app/data/chroma (CHROMA_DIR)
       - chroma_data:/app/data/chroma
@@ -61,6 +63,25 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    restart: unless-stopped
+
+  # Background job worker (jobs.py): processes POST /jobs/* from Redis. Scale with
+  #   docker compose up -d --scale worker=3
+  worker:
+    build: .
+    command: ["arq", "jobs.WorkerSettings"]
+    env_file:
+      - .env
+    environment:
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JOB_MAX_CONCURRENCY: ${JOB_MAX_CONCURRENCY:-4}
+    volumes:
+      - chroma_data:/app/data/chroma
+      - lead_logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

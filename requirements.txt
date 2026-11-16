@@ -24,3 +24,5 @@ flashrank==0.2.10
 slowapi==0.1.9
 PyJWT==2.10.1
 python-multipart==0.0.20
+# Background job queue (jobs.py) on Redis.
+arq==0.26.3

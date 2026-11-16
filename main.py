@@ -5,6 +5,7 @@
 import asyncio
 import json
 import time
+from contextlib import asynccontextmanager
 from enum import Enum
 from typing import Any
 
@@ -13,6 +14,7 @@ from fastapi import Depends, FastAPI, Request
 from loguru import logger
 from pydantic import BaseModel, EmailStr, Field, ValidationError, field_validator
 
+import jobs
 from agent import (
     AgentActionRequest,
     AgentActionResponse,
@@ -49,7 +51,7 @@ from rag import (
     retrieve_context,
 )
 from security import install as install_security
-from security import limit_ai, require_client
+from security import limit_ai, limit_poll, require_client
 from tracing import TracingMiddleware, configure_tracing, wrap_client
 
 setup_logging()
@@ -166,7 +168,16 @@ class ErrorBody(BaseModel):
     error_code: str
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Start the in-process job worker (free plan: API and worker share one service)."""
+    worker = await jobs.start_in_process_worker()
+    yield
+    await jobs.stop_in_process_worker(worker)
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Lead Analyzer",
     description=(
         "Classify lead priority and draft a suggested response with OpenAI + local RAG. "
@@ -436,8 +447,13 @@ async def analyze_lead(request: Request, body: AnalyzeLeadRequest) -> AnalyzeLea
 
     Soft fallbacks (RAG unavailable / low confidence) return HTTP 200 with
     ``needs_human_review=true`` and ``priority=High``. Hard LLM failures return HTTP 502
-    so n8n can retry.
+    so n8n can retry. ``POST /jobs/analyze-lead`` runs the same work in the background.
     """
+    return await run_analyze_lead(body)
+
+
+async def run_analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
+    """The /analyze-lead work, shared by the endpoint and the background job (jobs.py)."""
     started = time.perf_counter()
     thread_id = resolve_thread_id(body.thread_id)
     # body.message / body.email already sanitized by Pydantic validators (guardrails).
@@ -615,7 +631,13 @@ async def multi_agent(request: Request, body: MultiAgentRequest) -> MultiAgentRe
     - **Escalation** — high-priority Slack/email dispatch (stub or webhook)
 
     Existing ``/analyze-lead`` and ``/agent-action`` endpoints are unchanged.
+    ``POST /jobs/multi-agent`` runs the same work in the background.
     """
+    return await run_multi_agent_request(body)
+
+
+async def run_multi_agent_request(body: MultiAgentRequest) -> MultiAgentResponse:
+    """The /multi-agent work, shared by the endpoint and the background job (jobs.py)."""
     started = time.perf_counter()
     thread_id = resolve_thread_id(body.thread_id)
     log_request_start(
@@ -658,3 +680,47 @@ async def multi_agent(request: Request, body: MultiAgentRequest) -> MultiAgentRe
             "Multi-agent run failed due to an upstream error.",
             error_code="openai_unexpected",
         ) from exc
+
+
+# ---- Background jobs (jobs.py, docs/job-queue.md) ----------------------------------------------
+
+_JOB_ERRORS = {status: {"model": ErrorBody} for status in (401, 404, 429, 503)}
+
+
+@app.post(
+    "/jobs/analyze-lead",
+    status_code=202,
+    response_model=jobs.JobAccepted,
+    responses={400: {"model": ErrorBody}, **_JOB_ERRORS},
+    tags=["jobs"],
+)
+@limit_ai
+async def enqueue_analyze_lead(
+    request: Request, body: AnalyzeLeadRequest, client_id: str | None = Depends(require_client)
+) -> jobs.JobAccepted:
+    """Queue an /analyze-lead run; returns 202 and a job id at once. Poll ``status_url``."""
+    return await jobs.enqueue("analyze_lead_job", body.model_dump(mode="json"), client_id)
+
+
+@app.post(
+    "/jobs/multi-agent",
+    status_code=202,
+    response_model=jobs.JobAccepted,
+    responses={400: {"model": ErrorBody}, **_JOB_ERRORS},
+    tags=["jobs"],
+)
+@limit_ai
+async def enqueue_multi_agent(
+    request: Request, body: MultiAgentRequest, client_id: str | None = Depends(require_client)
+) -> jobs.JobAccepted:
+    """Queue a /multi-agent run; returns 202 and a job id at once. Poll ``status_url``."""
+    return await jobs.enqueue("multi_agent_job", body.model_dump(mode="json"), client_id)
+
+
+@app.get("/jobs/{job_id}", response_model=jobs.JobStatusResponse, responses=_JOB_ERRORS, tags=["jobs"])
+@limit_poll
+async def get_job(
+    request: Request, job_id: str, client_id: str | None = Depends(require_client)
+) -> jobs.JobStatusResponse:
+    """Job status: queued → in_progress → complete (with ``result``) or failed (with ``error``)."""
+    return await jobs.job_status(job_id, client_id)

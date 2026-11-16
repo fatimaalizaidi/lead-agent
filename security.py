@@ -179,6 +179,7 @@ limiter = Limiter(key_func=_client_key, storage_uri=get_settings().rate_limit_st
 # Decorators for endpoints (they need a ``request: Request`` parameter). Limits are read from
 # Settings on every request, so changing RATE_LIMIT needs only a restart, no code change.
 limit_ai = limiter.limit(lambda: get_settings().rate_limit, exempt_when=_rate_limits_off)
+limit_poll = limiter.limit(lambda: get_settings().rate_limit_poll, exempt_when=_rate_limits_off)
 limit_token = limiter.limit(
     lambda: get_settings().rate_limit_token, key_func=get_remote_address, exempt_when=_rate_limits_off
 )

@@ -9,6 +9,8 @@ __pycache__/
 .env.*
 !.env.example
 data/
+# The fine-tuning dataset is source, not runtime data (finetune/generate_dataset.py, test.jsonl).
+!finetune/data/
 data/chroma/
 logs/
 models/

@@ -16,3 +16,4 @@ models/
 
 # RAG evaluation reports (python -m eval.run_ragas)
 eval/results/
+.venv-train/

@@ -1,0 +1,9 @@
+# Training extras for finetune/train_lora.py only (not used by the app, the Docker image or CI).
+# Local:  python -m venv .venv-train && .venv-train/bin/pip install -r requirements-train.txt
+# Colab:  !pip install -r requirements-train.txt  (free T4 GPU; also runs on a laptop CPU/Apple GPU)
+torch==2.7.1
+transformers==4.53.2
+peft==0.16.0
+onnx==1.18.0
+onnxruntime==1.22.0
+numpy

@@ -33,6 +33,7 @@ No `.env` secrets are required. Tests set `OPENAI_API_KEY=sk-test-offline-key-no
 | `POST /agent-action` | `tests/test_agent_action.py` | Tool loop (quote) + no-tools reply |
 | `POST /multi-agent` | `tests/test_multi_agent.py` | Knowledge / Sales/Pricing / Escalation routes |
 | Background jobs | `tests/test_jobs.py` | Enqueue → worker → result, retries with backoff, max tries, per-key privacy, 503 without Redis |
+| Priority classifier | `tests/test_classifier.py` | Shipped ONNX model on clear cases, **quality gate** on the hand-written test set, `/classify-priority` auth / validation / 503, dataset disjoint from test, teacher labelling (fake OpenAI) |
 | Auth + rate limits | `tests/test_security.py` | API keys, rotation, `/auth/token` JWTs (expired / tampered / revoked), 429s |
 
 ## What is mocked

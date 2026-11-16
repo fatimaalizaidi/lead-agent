@@ -1,0 +1,21 @@
+{
+  "base_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "mode": "lora",
+  "labels": [
+    "High",
+    "Medium",
+    "Low"
+  ],
+  "max_length": 128,
+  "lora_rank": 8,
+  "trainable_params": 74883,
+  "total_params": 22789254,
+  "epochs": 5,
+  "learning_rate": 0.0005,
+  "train_examples": 1200,
+  "train_file": "train.jsonl",
+  "best_val_accuracy": 1.0,
+  "train_seconds": 17.1,
+  "device": "mps",
+  "size_mb": 23.0
+}

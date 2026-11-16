@@ -74,12 +74,17 @@ jobs:
           docker run -d --name lead-agent -p 8000:8000 \
             -e OPENAI_API_KEY=sk-ci-placeholder-not-real lead-agent:ci
           for _ in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8000/health; then echo; exit 0; fi
+            if curl -fsS http://127.0.0.1:8000/health; then echo; break; fi
             sleep 2
           done
-          echo "::error::container never became healthy"
-          docker logs lead-agent
-          exit 1
+          curl -fsS http://127.0.0.1:8000/health >/dev/null || {
+            echo "::error::container never became healthy"; docker logs lead-agent; exit 1; }
+      - name: Fine-tuned classifier answers inside the image
+        run: |
+          curl -fsS -X POST http://127.0.0.1:8000/classify-priority \
+            -H "Content-Type: application/json" \
+            -d '{"message":"Budget approved for 40 seats, send the contract today."}' | tee /dev/stderr \
+            | python3 -c "import json,sys; assert json.load(sys.stdin)['priority'] == 'High'"
       - name: Container logs
         if: always()
         run: docker logs lead-agent 2>&1 | tail -50 || true

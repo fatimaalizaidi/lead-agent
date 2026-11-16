@@ -68,6 +68,17 @@ class Settings(BaseSettings):
     rate_limit_token: str = "10/minute"
     rate_limit_storage_uri: str = "memory://"
 
+    # Background jobs (jobs.py, docs/job-queue.md): arq on REDIS_URL. Without Redis, /jobs/* → 503.
+    # In-process = the API also runs the worker (one free Render service). Set false when a
+    # separate `arq jobs.WorkerSettings` process runs the jobs.
+    job_worker_in_process: bool = True
+    job_max_concurrency: int = 2
+    job_max_tries: int = 3
+    job_timeout_seconds: int = 120
+    job_result_ttl_seconds: int = 3600
+    # Polling GET /jobs/{id} has its own, looser per-key limit.
+    rate_limit_poll: str = "120/minute"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

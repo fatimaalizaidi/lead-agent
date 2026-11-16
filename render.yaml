@@ -35,3 +35,7 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
+      # Background jobs (docs/job-queue.md): connection string of a free Render Key Value
+      # (Redis) instance. Also turns on conversation memory. Empty → /jobs/* return 503.
+      - key: REDIS_URL
+        sync: false

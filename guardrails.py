@@ -17,16 +17,19 @@ MAX_EMAIL_CHARS = 254
 
 # Obvious jailbreak / instruction-override patterns (case-insensitive).
 # Keep this list short and high-precision; do not over-block legitimate business text.
+# MULTILINE: ^ matches at the start of every line, so role labels are caught where a chat
+# transcript puts them ("system: ..." on its own line) but not mid-sentence ("CRM system: HubSpot").
 _INJECTION_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(p, re.IGNORECASE)
+    re.compile(p, re.IGNORECASE | re.MULTILINE)
     for p in (
         r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?",
         r"disregard\s+(all\s+)?(previous|prior|above)\s+instructions?",
         r"forget\s+(all\s+)?(previous|prior|above)\s+instructions?",
         r"you\s+are\s+now\s+(dan|jailbroken|unrestricted)",
-        r"\bsystem\s*:\s*",
-        r"\bassistant\s*:\s*",
-        r"\[?\s*INST\s*\]?",
+        r"^\s*(system|assistant)\s*:",
+        # Llama-style [INST] / [/INST] tags. Brackets are required: without them this matched
+        # "Instagram", "install", "instead", "Salesforce Einstein" (2.8% of real-looking leads).
+        r"\[\s*/?\s*INST\s*\]",
         r"<\s*/?\s*system\s*>",
         r"role\s*-?\s*play\s+as\s+(an?\s+)?unrestricted",
         r"override\s+(your\s+)?(safety|system)\s+(rules?|prompt)",

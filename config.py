@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     # tokenizer from finetune/train_lora.py. Missing files → POST /classify-priority returns 503.
     priority_model_dir: str = "finetune/model"
 
+    # Public demo page (demo.py, docs/demo.md): GET /demo, no API key. Per-IP rate limits plus a
+    # global daily cap on OpenAI calls keep a public link cheap; the fine-tuned classifier is free.
+    demo_enabled: bool = True
+    demo_daily_llm_limit: int = 200
+    demo_rate_limit: str = "6/minute;40/day"
+    demo_classify_rate_limit: str = "30/minute"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

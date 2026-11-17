@@ -5,9 +5,11 @@
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688)
 ![LangGraph](https://img.shields.io/badge/LangGraph-multi--agent-purple)
-[![Live demo](https://img.shields.io/badge/live%20demo-Render-46E3B7)](https://lead-agent-fjxq.onrender.com/docs)
+[![Live demo](https://img.shields.io/badge/live%20demo-try%20it-46E3B7)](https://lead-agent-fjxq.onrender.com/demo)
 
 An AI back end that triages inbound sales leads and answers them. A LangGraph supervisor routes each message to Sales, Knowledge or Escalation agents, which use OpenAI tool calling and hybrid RAG over the company knowledge base. The service is evaluated with Ragas, traced in LangSmith, tested in CI and deployed on Render.
+
+**Try it:** <https://lead-agent-fjxq.onrender.com/demo>: paste a lead and watch GPT-4o-mini + RAG and the fine-tuned classifier triage it side by side, no key needed ([docs/demo.md](docs/demo.md)).
 
 **Live API:** <https://lead-agent-fjxq.onrender.com/docs>. It runs on Render's free plan, so the first request after a quiet period takes about 30–50 s while it wakes up.
 
@@ -63,7 +65,7 @@ The AI endpoints need an `X-API-Key` header or a bearer token once `API_KEYS` is
 - **Background job queue:** `POST /jobs/*` returns `202` at once and an arq worker on Redis runs the AI call, with retries and backoff for OpenAI 429/502s and per-key job privacy. `GET /jobs/stats` is the monitoring view (queue depth, failures, p50/p95 wait and run times, worker heartbeat), standing in for Celery's Flower. The worker runs inside the API on the free plan, or as separately scaled services (`docker compose up --scale worker=3`).
 - **Fine-tuning:** a LoRA fine-tuned all-MiniLM-L6-v2 classifier (0.33% of weights trained, 17 s on a laptop), merged and exported to int8 ONNX (23 MB), serves `POST /classify-priority` in ~2 ms with no OpenAI cost. On 84 hand-written test leads: **85.7% accuracy and 100% High recall**, vs 72.6% for a frozen-encoder baseline. CI fails if a retrained model drops under its floors. `finetune/export_langsmith.py` builds the next training set from production traces (gpt-4o-mini as teacher), with PII masked, a time-based test split and nothing committed.
 - **API security:** API keys with zero-downtime rotation, OAuth2 client-credentials JWTs (revoked along with their key), and per-key `slowapi` rate limiting that returns 429 with `Retry-After`.
-- **CI/CD:** GitHub Actions runs ruff, **164 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
+- **CI/CD:** GitHub Actions runs ruff, **178 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
 - **Observability:** LangSmith traces every request (agent nodes, LLM calls, tools, retrieval steps), and structured JSON logs record latency, tokens, **cost in USD** and failed tool calls.
 - **Automation:** n8n workflows route leads to Slack or email by AI-assigned priority.
 

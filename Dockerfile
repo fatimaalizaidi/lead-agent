@@ -30,7 +30,8 @@ RUN apt-get update \
 RUN python -c "from flashrank import Ranker; Ranker(model_name='ms-marco-MiniLM-L-12-v2', cache_dir='/app/models/flashrank')" \
     && chown -R appuser:appuser /app/models
 
-COPY --chown=appuser:appuser main.py rag.py config.py errors.py guardrails.py observability.py agent.py tools.py memory.py multiagent.py tracing.py security.py jobs.py classifier.py ./
+COPY --chown=appuser:appuser main.py rag.py config.py errors.py guardrails.py observability.py agent.py tools.py memory.py multiagent.py tracing.py security.py jobs.py classifier.py demo.py ./
+COPY --chown=appuser:appuser static/ ./static/
 # Fine-tuned priority model (~23 MB int8 ONNX from finetune/train_lora.py) for POST /classify-priority.
 COPY --chown=appuser:appuser finetune/model/ ./finetune/model/
 COPY --chown=appuser:appuser knowledge/ ./knowledge/

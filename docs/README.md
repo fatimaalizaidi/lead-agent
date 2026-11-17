@@ -22,6 +22,7 @@ User-facing notes copied from Cursor Project Context so Claude Desktop (and anyo
 | [rag-upgrade.md](./rag-upgrade.md) | ChromaDB + LangChain RAG upgrade |
 | [hybrid-rag-reranking.md](./hybrid-rag-reranking.md) | Hybrid search (Chroma + BM25) and cross-encoder / Cohere re-ranking |
 | [rag-evaluation.md](./rag-evaluation.md) | Ragas evaluation: faithfulness, answer relevancy, context recall/precision (`python -m eval.run_ragas`) |
+| [demo.md](./demo.md) | Public demo page at `/demo`: key-free API, per-IP limits, daily OpenAI budget |
 | [job-queue.md](./job-queue.md) | Background jobs: `POST /jobs/*` → 202, arq worker, retries, scaling |
 | [fine-tuning.md](./fine-tuning.md) | LoRA fine-tuned priority classifier: data, training, ONNX export, eval gate, `POST /classify-priority` |
 | [security.md](./security.md) | API keys, OAuth2/JWT tokens, key rotation and `slowapi` rate limiting |

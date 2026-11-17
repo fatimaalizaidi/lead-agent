@@ -7,7 +7,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Lead Priority Routing Hub\n\n**Entry:** `POST /webhook/lead-priority` (or test URL while inactive).\n\n**Analyze:** `POST http://host.docker.internal:8000/analyze-lead`\n\n**Branches on** `{{ $json.priority }}` (case-insensitive High / Medium / Low):\n\n1. **High** → Slack Incoming Webhook\n2. **Medium** → local JSON file under `/home/node/.n8n-files/medium-leads/`\n3. **Low** → SMTP auto-reply email\n\nPaste Slack webhook URL on **Notify Slack (High)**. Add an **SMTP** credential on **Send Auto-Reply (Low)**.\n\nOptional later: second HTTP call to `/agent-action` (no `priority` — do not use for Switch).",
+        "content": "## Lead Priority Routing Hub\n\n**Entry:** `POST /webhook/lead-priority` (or test URL while inactive).\n\n**Analyze:** `POST https://lead-agent-fjxq.onrender.com/analyze-lead` (Header Auth `X-API-Key`; local dev: `http://host.docker.internal:8000/analyze-lead`)\n\n**Branches on** `{{ $json.priority }}` (case-insensitive High / Medium / Low):\n\n1. **High** → Slack Incoming Webhook\n2. **Medium** → local JSON file under `/home/node/.n8n-files/medium-leads/`\n3. **Low** → SMTP auto-reply email\n\nPaste Slack webhook URL on **Notify Slack (High)**. Add an **SMTP** credential on **Send Auto-Reply (Low)**.\n\nOptional later: second HTTP call to `/agent-action` (no `priority` — do not use for Switch).",
         "height": 420,
         "width": 380,
         "color": 5
@@ -61,7 +61,9 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://host.docker.internal:8000/analyze-lead",
+        "url": "https://lead-agent-fjxq.onrender.com/analyze-lead",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -87,6 +89,14 @@
       "position": [224, -32],
       "id": "b950eda4-b6ce-4032-b51f-2cabf516812e",
       "name": "Analyze Lead",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 20000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Header Auth account"
+        }
+      },
       "notesInFlow": true,
       "notes": "Primary classifier. Do not Switch on /agent-action (no priority field)."
     },

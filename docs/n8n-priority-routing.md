@@ -14,7 +14,8 @@ POST /webhook/lead-priority
    Edit Fields          { message, email } from body
         │
         ▼
-   Analyze Lead         POST http://host.docker.internal:8000/analyze-lead
+   Analyze Lead         POST https://lead-agent-fjxq.onrender.com/analyze-lead
+        │               Header Auth X-API-Key, retry 3x on fail
         │               returns priority, suggested_response, rationale, ...
         ▼
  Route by Priority      Switch on normalized priority
@@ -27,13 +28,17 @@ POST /webhook/lead-priority
  Build Webhook Response → Respond to Webhook (analyze-lead JSON + routed_branch)
 ```
 
+The live setup calls the Lead Agent deployed on Render (`https://lead-agent-fjxq.onrender.com`). A local API at `http://host.docker.internal:8000` is optional and only for local development (see [Local development](#local-development-optional)).
+
 **Do not** Switch on `/agent-action` for this milestone — that endpoint has no `priority`. Optional later: a second HTTP call after analyze for tool actions.
 
 ## Prerequisites
 
-1. Lead Analyzer on the Mac: `http://127.0.0.1:8000/health` → `{"status":"ok"}`.
-2. n8n (Docker) can reach the host API via `host.docker.internal:8000`.
-3. Workflow JSON from this folder (or the repo `n8n/` copy).
+1. Lead Agent on Render is up: `curl https://lead-agent-fjxq.onrender.com/health` → `{"status":"ok"}`. The first call after the service has been idle can take 30–50 s (see [Render cold start](#render-cold-start)).
+2. An API key for n8n is in the Render service's `API_KEYS`, and n8n has a **Header Auth** credential for it (see [API key](#api-key-for-lead-agent-required-once-api_keys-is-set)).
+3. n8n running (currently local Docker). See [Who can call the webhook](#who-can-call-the-webhook) for what that means for outside services.
+4. Workflow JSON from this folder (or the repo `n8n/` copy).
+5. Optional, local development only: Lead Agent on the Mac at `http://127.0.0.1:8000/health`, reachable from the n8n container as `host.docker.internal:8000`.
 
 ## Import
 
@@ -57,17 +62,23 @@ Then open the workflow in the UI, fix credentials (below), and **Activate**.
 
 ### Webhook URL
 
-| Mode | URL |
-|------|-----|
-| Production (active) | `http://127.0.0.1:5678/webhook/lead-priority` |
-| Test (listen once) | `http://127.0.0.1:5678/webhook-test/lead-priority` |
-| Public via ngrok | `https://YOUR-NGROK-HOST/webhook/lead-priority` |
+| Mode | URL | When it works |
+|------|-----|---------------|
+| Test | `http://127.0.0.1:5678/webhook-test/lead-priority` | Only after you click **Listen for test event** in the editor. It accepts **one** request, then stops listening. The run shows live in the editor. |
+| Production | `http://127.0.0.1:5678/webhook/lead-priority` | Only while the workflow is **Active** (toggle at top right). Runs appear under **Executions**. Returns 404 while inactive. |
+| Public via ngrok | `https://YOUR-NGROK-HOST/webhook/lead-priority` | Production path through a tunnel (see below). |
+
+Calling `/webhook-test/...` without **Listen for test event**, or `/webhook/...` while the workflow is inactive, returns 404 `webhook not registered`.
+
+### Who can call the webhook
+
+n8n currently runs in local Docker, so `127.0.0.1:5678` is reachable only from this Mac (Postman, curl). Outside services such as a website form or WhatsApp can call the webhook only when n8n is reachable online: host it on **n8n Cloud**, or expose the local instance with **ngrok** (`ngrok http 5678`) and set `WEBHOOK_URL` to the public URL so n8n shows the right webhook address. The Render API is already public, so only n8n needs this.
 
 Body (Postman / curl):
 
 ```json
 {
-  "email": "alex@acme.com",
+  "email": "alex@example.com",
   "message": "We need a demo this week for a 200-seat rollout. Budget is approved."
 }
 ```
@@ -79,8 +90,12 @@ Body (Postman / curl):
 When the API has `API_KEYS` set (always the case on Render), every call to `/analyze-lead`, `/multi-agent` and `/agent-action` needs an API key, or it returns `401 missing_credentials`. See [security.md](./security.md).
 
 1. Generate a key: `python -m security new-key n8n` prints `n8n:la_…`. Add the whole line to the API's `API_KEYS`.
-2. In n8n: **Credentials → Add credential → Header Auth**. Set **Name** to `X-API-Key` and **Value** to the `la_…` part only (without `n8n:`).
-3. Open the **Analyze Lead** HTTP Request node → **Authentication: Generic Credential Type** → **Generic Auth Type: Header Auth** → pick that credential. Do the same on any extra HTTP Request node, such as `/agent-action`.
+2. In n8n: **Credentials → Add credential → Header Auth**, named **Header Auth account** (the name the workflow JSON refers to).
+   - **Name:** `X-API-Key`. HTTP header names are case-insensitive, so `x-api-key` works too.
+   - **Value:** only the `la_…` part, **without** the `n8n:` prefix. The prefix is the key's label in `API_KEYS`, not part of the key.
+3. Open the **Analyze Lead** HTTP Request node → **Authentication: Generic Credential Type** → **Generic Auth Type: Header Auth** → pick **Header Auth account**. Do the same on any extra HTTP Request node, such as `/agent-action`.
+
+The exported workflow references the credential **by name only**. After import, n8n links it to your local credential of that name; if none exists, pick it in the node. No credential id or key value is stored in the JSON.
 
 Keep the key in an n8n credential rather than a plain header parameter: credentials are encrypted and aren't included when you export the workflow JSON. Running the API locally with `API_KEYS` empty turns auth off, and the header is then ignored.
 
@@ -120,6 +135,21 @@ Upgrade later: swap **Store Medium Lead** for Google Sheets or HubSpot with an A
 
 Without SMTP the Low branch continues (`continueOnFail`) so Postman still gets the analyze JSON; no email is sent until creds exist.
 
+## Render cold start
+
+Render's free plan puts the service to sleep after about 15 minutes without traffic. The first request after that wakes it, which takes **30–50 s**. While it wakes, Render answers with **HTTP 503** and an HTML page that says "Application loading", not JSON from the API.
+
+That is why **Analyze Lead** has:
+
+- **Timeout:** 60000 ms (60 s) per try
+- **Retry On Fail:** on, **Max Tries:** 3, **Wait Between Tries:** 20000 ms in the JSON
+
+Caveat: the n8n engine caps **Wait Between Tries** at **5000 ms** (and Max Tries at 5), whatever the node says. So the real budget is 3 tries with about 5 s between them. If Render answers 503 quickly every time, the three tries can run out before the service is awake. If the first production lead of the day still fails with 503:
+
+- open `https://lead-agent-fjxq.onrender.com/health` (browser or curl) a minute before testing to wake the service, or
+- raise **Max Tries** to 5, or add a **Wait** node plus a second HTTP Request, or
+- move the service to a paid Render plan, which does not sleep.
+
 ## Switch expressions
 
 Node **Route by Priority** (Switch v3.2), rules mode:
@@ -137,9 +167,9 @@ API returns exactly `High` | `Medium` | `Low`; normalizing with `.toLowerCase()`
 
 ## Test each branch (Postman / curl)
 
-Keep lead-agent on `:8000`. Prefer **production webhook** after Activate (or click **Listen for test event** for `/webhook-test/...`).
+Use the **production webhook** after Activate, or click **Listen for test event** and swap the path for `/webhook-test/lead-priority`. If Render was asleep, the first call can take up to a minute (see [Render cold start](#render-cold-start)).
 
-Priorities are LLM-classified — examples below were verified against local `/analyze-lead` and usually land as labeled; if one flips, check the response `priority` field.
+Priorities are LLM-classified. The examples below use fake data and usually land as labeled; if one flips, check the response `priority` field.
 
 ### High → Slack
 
@@ -147,7 +177,7 @@ Priorities are LLM-classified — examples below were verified against local `/a
 curl -sS -X POST "http://127.0.0.1:5678/webhook/lead-priority" \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "alex@acme.com",
+    "email": "alex@example.com",
     "message": "We need a demo this week for a 200-seat rollout. Budget is approved."
   }'
 ```
@@ -160,7 +190,7 @@ Expect: Slack message (if URL pasted); JSON with `"priority":"High"`, `"routed_b
 curl -sS -X POST "http://127.0.0.1:5678/webhook/lead-priority" \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "jane@startup.io",
+    "email": "jane@example.com",
     "message": "Curious about your product for a small team of 5. Not urgent — just researching options for next quarter."
   }'
 ```
@@ -183,15 +213,15 @@ Expect: SMTP send when credential configured; JSON with `"priority":"Low"` and b
 ### Direct API check (bypass n8n)
 
 ```bash
-curl -sS -X POST "http://127.0.0.1:8000/analyze-lead" \
+curl -sS -X POST "https://lead-agent-fjxq.onrender.com/analyze-lead" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: la_..." \
-  -d '{"email":"jane@startup.io","message":"Curious about your product for a small team of 5. Not urgent — just researching options for next quarter."}'
+  -d '{"email":"jane@example.com","message":"Curious about your product for a small team of 5. Not urgent — just researching options for next quarter."}'
 ```
 
 ## Optional second call (`/agent-action`)
 
-Useful after Medium/High when you want quote / calendar / escalate tools. Add another **HTTP Request** to `http://host.docker.internal:8000/agent-action` with the same `{email,message}` — **after** analyze+branch, not as the Switch input (response has `agent_reply` / `tools_called`, not `priority`).
+Useful after Medium/High when you want quote / calendar / escalate tools. Add another **HTTP Request** to `https://lead-agent-fjxq.onrender.com/agent-action` (same Header Auth credential and retry settings) with the same `{email,message}` — **after** analyze+branch, not as the Switch input (response has `agent_reply` / `tools_called`, not `priority`).
 
 ## Troubleshooting
 
@@ -199,8 +229,20 @@ Useful after Medium/High when you want quote / calendar / escalate tools. Add an
 |---------|--------|
 | Analyze Lead returns 401 | `missing_credentials`: the node has no Header Auth credential. `invalid_api_key`: the value is wrong. Use only the `la_…` part, not `n8n:la_…` |
 | Analyze Lead returns 429 `rate_limited` | Over `RATE_LIMIT` (default 20/minute per key). Wait `Retry-After` seconds, or raise the limit on the API |
-| Analyze Lead fails / timeout | `curl http://127.0.0.1:8000/health`; from container: `wget -qO- http://host.docker.internal:8000/health` |
+| Analyze Lead returns 503 with "Application loading" HTML | Render cold start. Wait about a minute and retry, or wake it first with `curl https://lead-agent-fjxq.onrender.com/health` (see [Render cold start](#render-cold-start)) |
+| Analyze Lead fails / timeout | `curl https://lead-agent-fjxq.onrender.com/health`. Local dev: `curl http://127.0.0.1:8000/health`; from the container: `wget -qO- http://host.docker.internal:8000/health` |
+| Webhook returns 404 `webhook not registered` | Test URL without **Listen for test event**, or production URL while the workflow is inactive |
 | Always Other branch | Inspect Analyze Lead output for `priority` |
 | Slack 404 / invalid_token | Webhook URL not replaced |
 | Medium write error / “Access to the file is not allowed” | Path must be under `~/.n8n-files`. Do not write into `~/.n8n/` |
 | Email error | SMTP credential missing; node is continue-on-fail so webhook still 200 |
+
+## Local development (optional)
+
+To run against a Lead Agent on your Mac instead of Render:
+
+1. Start the API locally (`uvicorn main:app --port 8000`) and check `http://127.0.0.1:8000/health`.
+2. In **Analyze Lead**, set the URL to `http://host.docker.internal:8000/analyze-lead` (n8n in Docker reaches the host through `host.docker.internal`).
+3. With `API_KEYS` empty locally, auth is off and the Header Auth credential is ignored. Retries are harmless, since there is no cold start locally.
+
+Switch the URL back to `https://lead-agent-fjxq.onrender.com/analyze-lead` before exporting the workflow to the repo.

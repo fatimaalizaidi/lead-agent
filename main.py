@@ -767,6 +767,17 @@ async def enqueue_multi_agent(
     return await jobs.enqueue("multi_agent_job", body.model_dump(mode="json"), client_id)
 
 
+@app.get("/jobs/stats", response_model=jobs.QueueStats, responses=_JOB_ERRORS, tags=["jobs"])
+@limit_poll
+async def get_queue_stats(request: Request, client_id: str | None = Depends(require_client)) -> jobs.QueueStats:
+    """Queue health: queued / in-progress / complete / failed counts, wait and run times, worker heartbeat.
+
+    Aggregate numbers only: no job ids, owners or payloads. Declared before ``/jobs/{job_id}`` so
+    "stats" isn't read as a job id.
+    """
+    return await jobs.queue_stats()
+
+
 @app.get("/jobs/{job_id}", response_model=jobs.JobStatusResponse, responses=_JOB_ERRORS, tags=["jobs"])
 @limit_poll
 async def get_job(

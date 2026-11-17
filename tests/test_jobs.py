@@ -210,6 +210,86 @@ async def test_no_redis_returns_503(client: AsyncClient, monkeypatch: pytest.Mon
     assert (await client.get("/health")).status_code == 200
 
 
+# ---- queue stats (GET /jobs/stats) --------------------------------------------------------------
+
+
+async def test_stats_on_an_empty_queue(client: AsyncClient, queue: ArqRedis) -> None:
+    resp = await client.get("/jobs/stats")
+    assert resp.status_code == 200, "'stats' must not be read as a job id"
+    body = resp.json()
+    assert {k: body[k] for k in ("queued", "scheduled_retries", "in_progress", "complete", "failed")} == dict.fromkeys(
+        ("queued", "scheduled_retries", "in_progress", "complete", "failed"), 0
+    )
+    assert body["by_kind"] == {} and body["wait_seconds"] is None and body["oldest_queued_seconds"] is None
+    assert body["worker"]["alive"] is False, "no worker has written a heartbeat yet"
+    assert body["worker"]["max_concurrency"] == 2
+
+
+async def test_stats_count_queued_then_finished_jobs(client: AsyncClient, queue: ArqRedis, fake_llm) -> None:
+    for _ in range(2):
+        await client.post("/jobs/analyze-lead", json=SAMPLE_LEAD)
+    queued = (await client.get("/jobs/stats")).json()
+    assert (queued["queued"], queued["complete"]) == (2, 0)
+    assert queued["oldest_queued_seconds"] >= 0
+
+    async def bad(_body):
+        raise BadRequestError("nope", error_code="validation_error")
+
+    await run_worker(queue)
+    with patch("main.run_analyze_lead", bad):
+        await client.post("/jobs/analyze-lead", json=SAMPLE_LEAD)
+        await run_worker(queue)
+
+    stats = (await client.get("/jobs/stats")).json()
+    assert (stats["queued"], stats["in_progress"], stats["complete"], stats["failed"]) == (0, 0, 2, 1)
+    assert stats["by_kind"] == {"analyze-lead": {"complete": 2, "failed": 1}}
+    assert stats["run_seconds"]["p50"] >= 0 and stats["wait_seconds"]["max"] >= 0
+    assert stats["worker"]["alive"] is True and "j_complete=" in stats["worker"]["heartbeat"]
+
+
+async def test_stats_split_due_and_deferred_jobs(client: AsyncClient, queue: ArqRedis) -> None:
+    """A retry waiting out its backoff sits in the queue with a future score: not 'queued'."""
+    await queue.enqueue_job("analyze_lead_job", SAMPLE_LEAD)
+    await queue.enqueue_job("analyze_lead_job", SAMPLE_LEAD, _defer_by=60)
+    stats = (await client.get("/jobs/stats")).json()
+    assert (stats["queued"], stats["scheduled_retries"]) == (1, 1)
+
+
+async def test_stats_reveal_no_job_details(
+    client: AsyncClient, queue: ArqRedis, fake_llm, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from config import get_settings
+
+    monkeypatch.setenv("API_KEYS", f"n8n:{N8N_KEY},demo:{DEMO_KEY}")
+    get_settings.cache_clear()
+    job_id = (await client.post("/jobs/analyze-lead", json=SAMPLE_LEAD, headers={"X-API-Key": N8N_KEY})).json()[
+        "job_id"
+    ]
+    await run_worker(queue)
+
+    assert (await client.get("/jobs/stats")).status_code == 401
+    other = await client.get("/jobs/stats", headers={"X-API-Key": DEMO_KEY})
+    assert other.json()["complete"] == 1
+    for secret in (job_id, SAMPLE_LEAD["email"], SAMPLE_LEAD["message"], "n8n"):
+        assert secret not in other.text
+
+
+async def test_stats_without_redis_503(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from config import get_settings
+
+    monkeypatch.setattr(jobs, "_pool", None)
+    monkeypatch.setenv("REDIS_URL", "")
+    get_settings.cache_clear()
+    resp = await client.get("/jobs/stats")
+    assert (resp.status_code, resp.json()["error_code"]) == (503, "job_queue_unavailable")
+
+
+def test_percentile() -> None:
+    assert jobs._percentile([3.0, 1.0, 2.0], 0.5) == 2.0
+    assert jobs._percentile([1.0], 0.95) == 1.0
+    assert jobs._percentile([float(i) for i in range(1, 21)], 0.95) == 19.0
+
+
 def test_retry_backoff() -> None:
     assert [jobs.retry_delay_seconds(t) for t in (1, 2, 3, 4, 10)] == [5, 10, 20, 40, 60]
 

@@ -12,6 +12,7 @@ client ──GET /jobs/{id}──────────▶ API ──read resu
 |---|---|
 | `POST /jobs/analyze-lead` | `202` `{"job_id", "status": "queued", "status_url"}`. Same body as `/analyze-lead`. |
 | `POST /jobs/multi-agent` | `202`, same shape. Same body as `/multi-agent`. |
+| `GET /jobs/stats` | Queue health for operators (see [Monitoring](#monitoring)). |
 | `GET /jobs/{job_id}` | `{"status": "queued" \| "in_progress" \| "complete" \| "failed", "result", "error", "tries", "enqueued_at", "finished_at"}`. `result` holds the same JSON the synchronous endpoint returns. |
 
 The synchronous endpoints are unchanged. Use them when the caller can wait a few seconds, and the job endpoints when it can't, or during bursts.
@@ -40,6 +41,36 @@ It needs Redis (`REDIS_URL`), which also powers conversation memory. Without it,
 3. The startup log should then show `job worker started in-process`.
 
 Free Redis instances have no persistence: a restart drops queued jobs and stored results. That's acceptable for a demo; use a persistent plan in production.
+
+## Monitoring
+
+`GET /jobs/stats` is a small JSON stand-in for Celery's Flower dashboard: no extra service, free.
+
+```json
+{
+  "queued": 0, "scheduled_retries": 0, "in_progress": 1,
+  "complete": 12, "failed": 1, "retried": 2,
+  "by_kind": {"analyze-lead": {"complete": 10, "failed": 1}, "multi-agent": {"complete": 2, "failed": 0}},
+  "oldest_queued_seconds": null,
+  "wait_seconds": {"p50": 0.02, "p95": 0.4, "max": 5.1},
+  "run_seconds": {"p50": 3.8, "p95": 9.6, "max": 11.4},
+  "window_seconds": 3600,
+  "worker": {"alive": true, "heartbeat": "Nov-17 09:47:12 j_complete=12 j_failed=1 j_retried=2 j_ongoing=1 queued=0",
+             "max_concurrency": 2, "max_tries": 3}
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `queued` | Jobs due now and waiting for a free worker slot. Growing steadily = add workers. |
+| `scheduled_retries` | Jobs waiting out a retry backoff (OpenAI 429/502). |
+| `in_progress` | Jobs a worker is running. |
+| `complete` / `failed` / `retried` / `by_kind` | Finished jobs whose results are still kept, i.e. over the last `window_seconds` (`JOB_RESULT_TTL_SECONDS`). |
+| `oldest_queued_seconds` | How long the oldest due job has waited. The best single alarm signal. |
+| `wait_seconds` / `run_seconds` | p50 / p95 / max of enqueue → start and start → finish for those jobs. |
+| `worker.alive` | A worker wrote its heartbeat in the last 60 s. `false` with jobs queued = nothing is draining the queue. |
+
+It needs an API key like the other job endpoints, and returns aggregate numbers only: no job ids, owners, emails or messages, so any key may read it. It reads Redis with `SCAN`, which is fine at demo scale; at very large volumes you'd export these as Prometheus metrics instead.
 
 ## Settings
 

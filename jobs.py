@@ -9,6 +9,8 @@ most ``JOB_MAX_CONCURRENCY`` OpenAI calls run at once.
 - **Retries:** OpenAI rate limits (429) and upstream errors (502) are retried with backoff, up to
   ``JOB_MAX_TRIES``. Other errors (bad input, auth) fail at once.
 - **Ownership:** each job records the API key id that created it; other keys get 404.
+- **Monitoring:** ``GET /jobs/stats`` reports queue depth, in-flight jobs, recent outcomes, wait and
+  run times and whether a worker is alive (the free-tier stand-in for Celery's Flower dashboard).
 - **Where it runs:** ``JOB_WORKER_IN_PROCESS=true`` (default) starts the worker inside the API
   process, so one free Render service is enough. At scale, set it to false and run
   ``arq jobs.WorkerSettings`` as a separate service (docker-compose.yml does this).
@@ -18,13 +20,15 @@ See docs/job-queue.md.
 
 # No `from __future__ import annotations`: see the note in security.py.
 import asyncio
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from arq import Retry, create_pool
 from arq.connections import ArqRedis, RedisSettings
-from arq.jobs import Job, JobStatus
+from arq.constants import default_queue_name, health_check_key_suffix, in_progress_key_prefix, result_key_prefix
+from arq.jobs import Job, JobResult, JobStatus
 from arq.worker import Worker
 from loguru import logger
 from pydantic import BaseModel
@@ -62,6 +66,39 @@ class JobStatusResponse(BaseModel):
     tries: int | None = None
     enqueued_at: datetime | None = None
     finished_at: datetime | None = None
+
+
+class DurationStats(BaseModel):
+    p50: float
+    p95: float
+    max: float
+
+
+class KindCounts(BaseModel):
+    complete: int = 0
+    failed: int = 0
+
+
+class WorkerInfo(BaseModel):
+    alive: bool  # a worker wrote its heartbeat within the last HEALTH_CHECK_SECONDS
+    heartbeat: str | None = None  # arq's own line: "Nov-17 09:47:12 j_complete=3 j_failed=0 …"
+    max_concurrency: int
+    max_tries: int
+
+
+class QueueStats(BaseModel):
+    queued: int  # due now, waiting for a free worker slot
+    scheduled_retries: int  # deferred: a retry waiting out its backoff
+    in_progress: int
+    complete: int  # finished jobs whose result is still kept (JOB_RESULT_TTL_SECONDS)
+    failed: int
+    retried: int  # finished jobs that needed more than one try
+    by_kind: dict[str, KindCounts]
+    oldest_queued_seconds: float | None = None
+    wait_seconds: DurationStats | None = None  # enqueue → start
+    run_seconds: DurationStats | None = None  # start → finish
+    window_seconds: int  # finished jobs are counted over this window
+    worker: WorkerInfo
 
 
 # ---- worker side -------------------------------------------------------------------------------
@@ -124,10 +161,15 @@ def _redis_settings() -> RedisSettings:
     return redis_settings
 
 
+# Workers write a heartbeat this often; GET /jobs/stats reports alive while it's fresh.
+HEALTH_CHECK_SECONDS = 60
+
+
 def _worker_options() -> dict[str, Any]:
     settings = get_settings()
     return {
         "functions": JOB_FUNCTIONS,
+        "health_check_interval": HEALTH_CHECK_SECONDS,
         "max_jobs": settings.job_max_concurrency,
         "max_tries": settings.job_max_tries,
         "job_timeout": settings.job_timeout_seconds,
@@ -144,6 +186,7 @@ class WorkerSettings:
     max_tries = get_settings().job_max_tries
     job_timeout = get_settings().job_timeout_seconds
     keep_result = get_settings().job_result_ttl_seconds
+    health_check_interval = HEALTH_CHECK_SECONDS
 
 
 @dataclass
@@ -242,3 +285,74 @@ async def job_status(job_id: str, owner: str | None) -> JobStatusResponse:
                 else {"status_code": 500, "error_code": "job_crashed", "detail": "The job failed unexpectedly."}
             )
     return response
+
+
+def _percentile(values: list[float], share: float) -> float:
+    """Nearest-rank percentile of a non-empty list."""
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, max(0, round(share * len(ordered)) - 1))]
+
+
+def _durations(values: list[float]) -> DurationStats | None:
+    if not values:
+        return None
+    return DurationStats(
+        p50=round(_percentile(values, 0.5), 3), p95=round(_percentile(values, 0.95), 3), max=round(max(values), 3)
+    )
+
+
+def _succeeded(result: JobResult) -> bool:
+    """Our job functions return {"ok": False, …} for handled errors; arq only marks crashes unsuccessful."""
+    return bool(result.success and isinstance(result.result, dict) and result.result.get("ok"))
+
+
+async def _keys(pool: ArqRedis, prefix: str) -> list[bytes]:
+    return [key async for key in pool.scan_iter(match=prefix + "*", count=500)]
+
+
+async def queue_stats() -> QueueStats:
+    """Aggregate queue health (no job ids, owners or payloads), for operators and dashboards."""
+    settings = get_settings()
+    pool = await get_pool()
+    now_ms = time.time() * 1000
+
+    scores = [score for _, score in await pool.zrange(default_queue_name, 0, -1, withscores=True)]
+    due = [score for score in scores if score <= now_ms]
+    in_progress = len(await _keys(pool, in_progress_key_prefix))
+
+    results: list[JobResult] = []
+    for key in await _keys(pool, result_key_prefix):
+        try:
+            results.append(await pool._get_job_result(key))
+        except Exception:  # expired between SCAN and GET, or unreadable
+            continue
+
+    by_kind: dict[str, KindCounts] = {}
+    for result in results:
+        counts = by_kind.setdefault(JOB_KINDS.get(result.function, result.function), KindCounts())
+        if _succeeded(result):
+            counts.complete += 1
+        else:
+            counts.failed += 1
+
+    heartbeat = await pool.get(default_queue_name + health_check_key_suffix)
+    complete = sum(_succeeded(r) for r in results)
+    return QueueStats(
+        queued=len(due),
+        scheduled_retries=len(scores) - len(due),
+        in_progress=in_progress,
+        complete=complete,
+        failed=len(results) - complete,
+        retried=sum(r.job_try > 1 for r in results),
+        by_kind=by_kind,
+        oldest_queued_seconds=round((now_ms - min(due)) / 1000, 1) if due else None,
+        wait_seconds=_durations([(r.start_time - r.enqueue_time).total_seconds() for r in results]),
+        run_seconds=_durations([(r.finish_time - r.start_time).total_seconds() for r in results]),
+        window_seconds=settings.job_result_ttl_seconds,
+        worker=WorkerInfo(
+            alive=heartbeat is not None,
+            heartbeat=heartbeat.decode() if heartbeat else None,
+            max_concurrency=settings.job_max_concurrency,
+            max_tries=settings.job_max_tries,
+        ),
+    )

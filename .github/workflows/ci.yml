@@ -85,6 +85,13 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"message":"Budget approved for 40 seats, send the contract today."}' | tee /dev/stderr \
             | python3 -c "import json,sys; assert json.load(sys.stdin)['priority'] == 'High'"
+      - name: Demo page and key-free classifier answer inside the image
+        run: |
+          curl -fsS http://127.0.0.1:8000/demo | grep -q "Analyze with both models"
+          curl -fsS -X POST http://127.0.0.1:8000/demo/api/classify \
+            -H "Content-Type: application/json" \
+            -d '{"message":"Cheap SEO backlinks, reply for our price list!"}' | tee /dev/stderr \
+            | python3 -c "import json,sys; assert json.load(sys.stdin)['classifier']['priority'] == 'Low'"
       - name: Container logs
         if: always()
         run: docker logs lead-agent 2>&1 | tail -50 || true

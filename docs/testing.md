@@ -32,6 +32,7 @@ No `.env` secrets are required. Tests set `OPENAI_API_KEY=sk-test-offline-key-no
 | `POST /analyze-lead` | `tests/test_analyze_lead.py` | Success, memory persist, RAG soft-fallback, validation |
 | `POST /agent-action` | `tests/test_agent_action.py` | Tool loop (quote) + no-tools reply |
 | `POST /multi-agent` | `tests/test_multi_agent.py` | Knowledge / Sales/Pricing / Escalation routes |
+| Demo page | `tests/test_demo.py` | `/demo` page, key-free API, daily budget fallback, per-IP 429, guardrail, thread isolation |
 | Background jobs | `tests/test_jobs.py` | Enqueue → worker → result, retries with backoff, max tries, per-key privacy, 503 without Redis, `/jobs/stats` counts and privacy |
 | LangSmith export | `tests/test_export_langsmith.py` | Parses wrapped-OpenAI runs, masks PII, skips errors / hidden inputs / other endpoints / follow-ups, dedupes, never leaks the test set, time split, private gitignored output |
 | Input guardrails | `tests/test_guardrails.py` | Injection markers blocked; business text with "Instagram", "install", "Einstein", "CRM system:" allowed; zero false positives on the 1,464-lead dataset |

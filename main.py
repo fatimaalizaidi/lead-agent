@@ -15,6 +15,7 @@ from loguru import logger
 from pydantic import BaseModel, EmailStr, Field, ValidationError, field_validator
 
 import classifier
+import demo
 import jobs
 from agent import (
     AgentActionRequest,
@@ -785,3 +786,7 @@ async def get_job(
 ) -> jobs.JobStatusResponse:
     """Job status: queued → in_progress → complete (with ``result``) or failed (with ``error``)."""
     return await jobs.job_status(job_id, client_id)
+
+
+# Public demo page + key-free demo API (demo.py, docs/demo.md). Last, so API routes win.
+app.include_router(demo.router)

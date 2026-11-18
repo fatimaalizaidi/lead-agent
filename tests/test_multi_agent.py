@@ -63,12 +63,12 @@ async def test_multi_agent_sales_with_quote_tool(
             (
                 "call_sales_1",
                 "calculate_custom_quote",
-                {"tier": "starter", "seats": 10},
+                {"tier": "starter", "seats": 5},
             )
         ]
     )
     sales_reply = completion_with_content(
-        "Starter for 10 seats is $490/month. I can also book a demo."
+        "Starter for 5 seats is $75/month. I can also book a demo."
     )
     supervisor_finish = completion_with_json(
         {"next": "finish", "reason": "quote delivered"}
@@ -81,7 +81,7 @@ async def test_multi_agent_sales_with_quote_tool(
         resp = await client.post(
             "/multi-agent",
             json={
-                "message": "Quote starter for 10 seats please",
+                "message": "Quote starter for 5 seats please",
                 "email": "sales@acme.com",
             },
         )
@@ -92,7 +92,7 @@ async def test_multi_agent_sales_with_quote_tool(
     assert len(body["tools_called"]) == 1
     assert body["tools_called"][0]["name"] == "calculate_custom_quote"
     assert body["tools_called"][0]["result"]["ok"] is True
-    assert body["tools_called"][0]["result"]["monthly_total_usd"] == 490.0
+    assert body["tools_called"][0]["result"]["monthly_total_usd"] == 75.0
 
 
 @pytest.mark.asyncio
@@ -318,9 +318,9 @@ async def test_multi_agent_mixed_message_routes_knowledge_then_sales(
             completion_with_content(knowledge_answer),
             completion_with_json({"next": "sales", "reason": "quote still needed"}),
             completion_with_tool_calls(
-                [("call_q", "calculate_custom_quote", {"tier": "starter", "seats": 10})]
+                [("call_q", "calculate_custom_quote", {"tier": "starter", "seats": 5})]
             ),
-            completion_with_content("Starter for 10 seats is $490/month."),
+            completion_with_content("Starter for 5 seats is $75/month."),
             completion_with_json({"next": "finish", "reason": "both parts answered"}),
         ]
     )
@@ -329,7 +329,7 @@ async def test_multi_agent_mixed_message_routes_knowledge_then_sales(
         resp = await client.post(
             "/multi-agent",
             json={
-                "message": "What's your refund policy, and quote Starter for 10 seats?",
+                "message": "What's your refund policy, and quote Starter for 5 seats?",
                 "email": "mixed@acme.com",
             },
         )
@@ -340,7 +340,7 @@ async def test_multi_agent_mixed_message_routes_knowledge_then_sales(
     assert [t["name"] for t in body["tools_called"]] == ["calculate_custom_quote"]
     assert "refund" in body["agent_reply"].lower()
     # Code keeps knowledge's answer ahead of the sales part.
-    assert body["agent_reply"] == f"{knowledge_answer}\n\nStarter for 10 seats is $490/month."
+    assert body["agent_reply"] == f"{knowledge_answer}\n\nStarter for 5 seats is $75/month."
     mock_rag_multiagent.assert_called_once()
 
     # Second supervisor hop sees knowledge already called and its reply.

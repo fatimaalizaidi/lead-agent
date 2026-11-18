@@ -6,7 +6,7 @@ Live: <https://lead-agent-fjxq.onrender.com/demo>
 
 ## What a visitor sees
 
-- A lead box with one-click examples (ready to buy, comparing vendors, browsing, spam, urgent support, prompt injection).
+- A lead box with one-click examples (ready to buy, comparing tools, browsing, a Roman Urdu lead, spam, urgent support, prompt injection). The leads are for ReplyHub, a demo company that sells WhatsApp team-inbox software.
 - **Both models side by side:** GPT-4o-mini + hybrid RAG (priority, suggested reply, rationale, knowledge sources, latency) and the LoRA fine-tuned classifier (priority, per-class confidence, latency in ms), with a banner saying whether they agree.
 - A follow-up checkbox that continues the conversation (Redis memory).
 - How it works, the fine-tuned model's evaluation numbers, live queue/memory status, and the tech stack.

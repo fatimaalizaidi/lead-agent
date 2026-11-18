@@ -42,13 +42,14 @@ message → embeddings → Chroma similarity search → prompt + KB context
 
 ### New: `knowledge/*.md` (company knowledge base)
 
-Sample private domain articles (fictional company docs):
+Sample domain articles for ReplyHub, a demo company (fictional) that sells WhatsApp team-inbox software:
 
-1. **Pricing Plans** — `pricing.md`
-2. **Service Level Agreement (SLA)** — `sla.md`
-3. **Enterprise Onboarding** — `enterprise-onboarding.md`
-4. **Support Hours** — `support-hours.md`
-5. **Refund Policy** — `refund-policy.md`
+1. **Product Features** — `features.md`
+2. **Pricing Plans** — `pricing.md`
+3. **Service Level Agreement (SLA)** — `sla.md`
+4. **Onboarding and WhatsApp Setup** — `onboarding.md`
+5. **Support Hours** — `support-hours.md`
+6. **Refund Policy** — `refund-policy.md`
 
 Each file is a short markdown article with a `# Title`. To add real company data later: drop another `.md` in `knowledge/`; the fingerprint changes and the index rebuilds.
 

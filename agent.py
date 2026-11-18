@@ -28,7 +28,8 @@ MAX_AGENT_ITERATIONS = 5
 # Final assistant replies stay short for n8n / chat UIs.
 MAX_AGENT_TOKENS = 256
 
-AGENT_SYSTEM_PROMPT = """You are an autonomous sales/support agent for Acme LeadDesk.
+AGENT_SYSTEM_PROMPT = """You are an autonomous sales/support agent for ReplyHub, a WhatsApp team-inbox product
+(seats = agents who answer chats).
 You have tools for quotes, calendar availability, and human escalation.
 Choose tools based on the customer's intent. You may call multiple tools across turns.
 When earlier user/assistant turns are present, continue that conversation (reuse names,

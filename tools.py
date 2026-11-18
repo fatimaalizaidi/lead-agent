@@ -13,13 +13,14 @@ from typing import Any
 from loguru import logger
 
 # ---------------------------------------------------------------------------
-# Pricing tiers (USD / seat / month). Documented here for the model + callers.
-# Starter / Growth match public list; Enterprise is a negotiated base.
+# ReplyHub (a demo company) pricing tiers: USD per agent seat per month, matching
+# knowledge/pricing.md. An agent seat is one person who answers WhatsApp chats.
+# Starter / Growth are list prices; Enterprise is the "from" price of a custom quote.
 # ---------------------------------------------------------------------------
 TIER_BASE_USD: dict[str, float] = {
-    "starter": 49.0,
-    "growth": 149.0,
-    "enterprise": 399.0,
+    "starter": 15.0,
+    "growth": 29.0,
+    "enterprise": 49.0,
 }
 VALID_TIERS = frozenset(TIER_BASE_USD)
 
@@ -27,10 +28,10 @@ VALID_TIERS = frozenset(TIER_BASE_USD)
 def calculate_custom_quote(tier: str, seats: int) -> dict[str, Any]:
     """Return a stub monthly quote: ``tier_base × seats``.
 
-    Tiers (USD base per seat / month):
-      - starter: 49
-      - growth: 149
-      - enterprise: 399
+    Tiers (USD per agent seat / month):
+      - starter: 15
+      - growth: 29
+      - enterprise: 49 (starting price; final Enterprise terms are negotiated)
     """
     normalized = (tier or "").strip().lower()
     if normalized not in VALID_TIERS:
@@ -120,9 +121,11 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "function": {
             "name": "calculate_custom_quote",
             "description": (
-                "Calculate a monthly custom quote for a pricing tier and seat count. "
+                "Calculate a monthly ReplyHub quote for a pricing tier and agent seat count "
+                "(one seat = one person answering WhatsApp chats). "
                 "Use when the customer asks about pricing, quotes, cost, or seats. "
-                "Tiers: starter ($49/seat), growth ($149/seat), enterprise ($399/seat)."
+                "Tiers: starter ($15/seat, 1-5 seats), growth ($29/seat, up to 25), "
+                "enterprise (from $49/seat, 26+)."
             ),
             "parameters": {
                 "type": "object",
@@ -135,7 +138,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "seats": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "Number of seats / licenses",
+                        "description": "Number of agent seats (people answering chats)",
                     },
                 },
                 "required": ["tier", "seats"],

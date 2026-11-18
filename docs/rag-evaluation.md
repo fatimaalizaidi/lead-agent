@@ -54,15 +54,15 @@ python -m eval.retrieval_gate --compare    # vector vs hybrid vs hybrid + re-ran
 python -m eval.retrieval_gate --no-gate    # scores only
 ```
 
-**Baseline (2026-11-12, 26 questions, local embeddings):**
+**Baseline (2026-11-18, ReplyHub knowledge base, 26 questions, local embeddings):**
 
 | Mode | Top-1 accuracy | Hit rate | MRR | Fact recall |
 |---|---|---|---|---|
-| vector | 0.846 | 1.000 | 0.917 | 1.000 |
-| hybrid (production) | 0.885 | 1.000 | 0.942 | 1.000 |
-| hybrid + re-rank | 0.962 | 1.000 | 0.981 | 1.000 |
+| vector | 0.885 | 1.000 | 0.942 | 1.000 |
+| hybrid (production) | 1.000 | 1.000 | 1.000 | 1.000 |
+| hybrid + re-rank | 0.923 | 1.000 | 0.955 | 1.000 |
 
-**Does it catch real bugs?** Re-introducing the old "one chunk per article" bug drops fact recall to 0.964 (the Starter price `$49` is no longer retrieved), and the gate fails. Switching production to vector-only search fails on MRR (0.917 against a 0.92 floor).
+**Does it catch real bugs?** Switching production to vector-only search fails on top-1 accuracy (0.885 against a 0.96 floor) and MRR (0.942 against 0.96). Building the knowledge base also caught two gaps: "how many agents can we add on Growth" and "we have 40 people, which plan" missed the right pricing facts until `pricing.md` got plan headings and a "which plan fits your team size" line.
 
 Retrieval is deterministic, so each floor sits just under the baseline with about one question of slack. Raise a floor in the same PR as a change that improves it.
 
@@ -81,6 +81,8 @@ Add one JSON object per line to `eval/golden.jsonl`:
 `source` must name a file in `knowledge/` (the tests check it). When you add or change a knowledge article, add questions for it.
 
 ## Results (2026-11-09, 26 questions, judge gpt-4o-mini)
+
+These numbers were measured on the earlier demo knowledge base (a fictional lead-scoring product). The knowledge base is now ReplyHub (WhatsApp team inbox); the Ragas run on it is pending, since it costs a little OpenAI money (`python -m eval.run_ragas`).
 
 | Mode | Faithfulness | Answer Relevancy | Context Recall | Context Precision |
 |---|---|---|---|---|

@@ -9,6 +9,8 @@
 
 An AI back end that triages inbound sales leads and answers them. A LangGraph supervisor routes each message to Sales, Knowledge or Escalation agents, which use OpenAI tool calling and hybrid RAG over the company knowledge base. The service is evaluated with Ragas, traced in LangSmith, tested in CI and deployed on Render.
 
+The business it serves is **ReplyHub**, a demo company (fictional) that sells WhatsApp team-inbox software: a business connects one WhatsApp number and its whole team answers customers from a shared inbox. Leads are owners and managers of clothing brands, online stores, clinics, restaurants and schools; a "seat" is one agent who logs in to answer chats. All company data (pricing, SLA, policies in [`knowledge/`](knowledge/)) and all example leads are made up.
+
 **Try it:** <https://lead-agent-fjxq.onrender.com/demo>: paste a lead and watch GPT-4o-mini + RAG and the fine-tuned classifier triage it side by side, no key needed ([docs/demo.md](docs/demo.md)).
 
 **Live API:** <https://lead-agent-fjxq.onrender.com/docs>. It runs on Render's free plan, so the first request after a quiet period takes about 30–50 s while it wakes up.
@@ -71,7 +73,7 @@ The AI endpoints need an `X-API-Key` header or a bearer token once `API_KEYS` is
 
 ## Results
 
-**Retrieval quality** (Ragas, 26 questions, judge `gpt-4o-mini`; details in [docs/rag-evaluation.md](docs/rag-evaluation.md)):
+**Retrieval quality** (Ragas, 26 questions, judge `gpt-4o-mini`; measured on the earlier demo knowledge base, re-run on ReplyHub pending; details in [docs/rag-evaluation.md](docs/rag-evaluation.md)):
 
 | Retrieval mode | Faithfulness | Answer relevancy | Context recall | Context precision |
 |---|---|---|---|---|
@@ -151,7 +153,7 @@ Open interactive docs at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs
 curl -s -X POST "http://127.0.0.1:8000/analyze-lead" \
   -H "Content-Type: application/json" \
   -d '{
-    "message": "We need a demo this week for a 200-seat rollout. Budget is approved.",
+    "message": "We run an online clothing brand. 8 people handle WhatsApp orders. Need it set up before the Eid sale, budget is approved.",
     "email": "alex@acme.com"
   }'
 ```
@@ -162,7 +164,7 @@ Pricing / KB-oriented example (should surface `knowledge_sources` such as Pricin
 curl -s -X POST "http://127.0.0.1:8000/analyze-lead" \
   -H "Content-Type: application/json" \
   -d '{
-    "message": "What does Growth plan cost per month, and do you offer annual discounts?",
+    "message": "What does the Growth plan cost per agent, and do you offer annual discounts?",
     "email": "buyer@acme.com"
   }'
 ```
@@ -173,7 +175,7 @@ Example response shape:
 {
   "email": "buyer@acme.com",
   "priority": "Medium",
-  "suggested_response": "Growth is $149/month; annual billing is 15% off...",
+  "suggested_response": "Growth is $29 per agent seat per month; annual billing is 15% off...",
   "rationale": "Pricing question with clear commercial interest.",
   "knowledge_sources": ["Pricing Plans"],
   "needs_human_review": false,

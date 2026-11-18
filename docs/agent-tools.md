@@ -22,7 +22,7 @@ Inputs are sanitized with the existing guardrails (length, injection patterns, e
 ```json
 {
   "email": "alex@acme.com",
-  "agent_reply": "For 25 Growth seats, the stub monthly total is $3,725 USD.",
+  "agent_reply": "For 25 Growth seats, the stub monthly total is $725 USD.",
   "tools_called": [
     {
       "name": "calculate_custom_quote",
@@ -31,8 +31,8 @@ Inputs are sanitized with the existing guardrails (length, injection patterns, e
         "ok": true,
         "tier": "growth",
         "seats": 25,
-        "unit_price_usd": 149.0,
-        "monthly_total_usd": 3725.0,
+        "unit_price_usd": 29.0,
+        "monthly_total_usd": 725.0,
         "currency": "USD",
         "note": "Stub quote — not a binding offer. Enterprise may need custom terms."
       }
@@ -52,7 +52,7 @@ Inputs are sanitized with the existing guardrails (length, injection patterns, e
 
 | Tool | Purpose |
 | --- | --- |
-| `calculate_custom_quote(tier, seats)` | Stub monthly quote: tier base × seats. Tiers: `starter` ($49), `growth` ($149), `enterprise` ($399) |
+| `calculate_custom_quote(tier, seats)` | Stub monthly quote: tier base × seats. Tiers (ReplyHub, USD per agent seat): `starter` ($15), `growth` ($29), `enterprise` (from $49) |
 | `check_calendar_availability()` | Stub available demo slots (fake UTC windows) |
 | `escalate_to_human_support()` | Stub escalation ticket id + `queued` status |
 

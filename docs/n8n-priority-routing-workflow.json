@@ -90,7 +90,7 @@
       "id": "b950eda4-b6ce-4032-b51f-2cabf516812e",
       "name": "Analyze Lead",
       "retryOnFail": true,
-      "maxTries": 3,
+      "maxTries": 5,
       "waitBetweenTries": 20000,
       "credentials": {
         "httpHeaderAuth": {

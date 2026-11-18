@@ -15,7 +15,7 @@ POST /webhook/lead-priority
         │
         ▼
    Analyze Lead         POST https://lead-agent-fjxq.onrender.com/analyze-lead
-        │               Header Auth X-API-Key, retry 3x on fail
+        │               Header Auth X-API-Key, retry 5x on fail
         │               returns priority, suggested_response, rationale, ...
         ▼
  Route by Priority      Switch on normalized priority
@@ -142,12 +142,12 @@ Render's free plan puts the service to sleep after about 15 minutes without traf
 That is why **Analyze Lead** has:
 
 - **Timeout:** 60000 ms (60 s) per try
-- **Retry On Fail:** on, **Max Tries:** 3, **Wait Between Tries:** 20000 ms in the JSON
+- **Retry On Fail:** on, **Max Tries:** 5 (n8n's maximum), **Wait Between Tries:** 20000 ms in the JSON
 
-Caveat: the n8n engine caps **Wait Between Tries** at **5000 ms** (and Max Tries at 5), whatever the node says. So the real budget is 3 tries with about 5 s between them. If Render answers 503 quickly every time, the three tries can run out before the service is awake. If the first production lead of the day still fails with 503:
+Caveat: the n8n engine caps **Wait Between Tries** at **5000 ms** (and Max Tries at 5), whatever the node says. So the real budget is 5 tries with about 5 s between them (about 20 s of waiting plus the request times). If Render answers 503 quickly every time, the tries can still run out before the service is awake. If the first production lead of the day still fails with 503:
 
 - open `https://lead-agent-fjxq.onrender.com/health` (browser or curl) a minute before testing to wake the service, or
-- raise **Max Tries** to 5, or add a **Wait** node plus a second HTTP Request, or
+- add a **Wait** node plus a second HTTP Request (Max Tries is already at n8n's maximum of 5), or
 - move the service to a paid Render plan, which does not sleep.
 
 ## Switch expressions

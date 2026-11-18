@@ -7,7 +7,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Lead Priority Routing Hub\n\n**Entry:** `POST /webhook/lead-priority` (or test URL while inactive).\n\n**Analyze:** `POST https://lead-agent-fjxq.onrender.com/analyze-lead` (Header Auth `X-API-Key`; local dev: `http://host.docker.internal:8000/analyze-lead`)\n\n**Branches on** `{{ $json.priority }}` (case-insensitive High / Medium / Low):\n\n1. **High** → Slack Incoming Webhook\n2. **Medium** → local JSON file under `/home/node/.n8n-files/medium-leads/`\n3. **Low** → SMTP auto-reply email\n\nPaste Slack webhook URL on **Notify Slack (High)**. Add an **SMTP** credential on **Send Auto-Reply (Low)**.\n\nOptional later: second HTTP call to `/agent-action` (no `priority` — do not use for Switch).",
+        "content": "## Lead Priority Routing Hub\n\n**Entry:** `POST /webhook/lead-priority` (or test URL while inactive).\n\n**Wake:** `GET https://lead-agent-fjxq.onrender.com/health` (wakes Render from a cold start; never blocks)\n\n**Analyze:** `POST https://lead-agent-fjxq.onrender.com/analyze-lead` (Header Auth `X-API-Key`; local dev: `http://host.docker.internal:8000/analyze-lead`)\n\n**Branches on** `{{ $json.priority }}` (case-insensitive High / Medium / Low):\n\n1. **High** → Slack Incoming Webhook\n2. **Medium** → local JSON file under `/home/node/.n8n-files/medium-leads/`\n3. **Low** → SMTP auto-reply email\n\nPaste Slack webhook URL on **Notify Slack (High)**. Add an **SMTP** credential on **Send Auto-Reply (Low)**.\n\nOptional later: second HTTP call to `/agent-action` (no `priority` — do not use for Switch).",
         "height": 420,
         "width": 380,
         "color": 5
@@ -60,6 +60,26 @@
     },
     {
       "parameters": {
+        "url": "https://lead-agent-fjxq.onrender.com/health",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [224, -32],
+      "id": "6d1f4e2a-9b3c-4a7e-8f10-2c5d7e9a1b34",
+      "name": "Wake Render",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "notesInFlow": true,
+      "notes": "GET /health to wake Render's free plan (30-50 s cold start). Never blocks: on failure the flow continues and Analyze Lead retries too."
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://lead-agent-fjxq.onrender.com/analyze-lead",
         "authentication": "genericCredentialType",
@@ -79,14 +99,14 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"email\": {{ JSON.stringify($json.email) }},\n  \"message\": {{ JSON.stringify($json.message) }}\n}",
+        "jsonBody": "={\n  \"email\": {{ JSON.stringify($('Edit Fields').item.json.email) }},\n  \"message\": {{ JSON.stringify($('Edit Fields').item.json.message) }}\n}",
         "options": {
           "timeout": 60000
         }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
-      "position": [224, -32],
+      "position": [448, -32],
       "id": "b950eda4-b6ce-4032-b51f-2cabf516812e",
       "name": "Analyze Lead",
       "retryOnFail": true,
@@ -187,7 +207,7 @@
       },
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [448, -32],
+      "position": [672, -32],
       "id": "2f8c5faf-f6ea-4253-99a2-a036a4c96025",
       "name": "Route by Priority"
     },
@@ -213,7 +233,7 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
-      "position": [720, -240],
+      "position": [944, -240],
       "id": "38e1e5be-64a0-4c5b-859e-a56817a568a8",
       "name": "Notify Slack (High)",
       "notesInFlow": true,
@@ -230,7 +250,7 @@
       },
       "type": "n8n-nodes-base.convertToFile",
       "typeVersion": 1.1,
-      "position": [720, -32],
+      "position": [944, -32],
       "id": "55eb40f8-8ccb-4109-8b5e-52acd59c6a9c",
       "name": "Lead to JSON File"
     },
@@ -243,7 +263,7 @@
       },
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1.1,
-      "position": [944, -32],
+      "position": [1168, -32],
       "id": "a1b2c3d4-e5f6-4789-a012-3456789abcde",
       "name": "Store Medium Lead",
       "notesInFlow": true,
@@ -260,7 +280,7 @@
       },
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
-      "position": [720, 176],
+      "position": [944, 176],
       "id": "b2c3d4e5-f6a7-4890-b123-456789abcdef",
       "name": "Send Auto-Reply (Low)",
       "notesInFlow": true,
@@ -326,7 +346,7 @@
       },
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.5,
-      "position": [1168, -32],
+      "position": [1392, -32],
       "id": "e1f2a3b4-c5d6-4789-e012-def012345678",
       "name": "Build Webhook Response"
     },
@@ -338,7 +358,7 @@
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
-      "position": [1392, -32],
+      "position": [1616, -32],
       "id": "f2a3b4c5-d6e7-4890-f123-ef0123456789",
       "name": "Respond to Webhook"
     }
@@ -356,6 +376,17 @@
       ]
     },
     "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Wake Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wake Render": {
       "main": [
         [
           {

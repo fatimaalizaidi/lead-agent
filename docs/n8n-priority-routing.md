@@ -1,6 +1,6 @@
 # n8n priority routing hub
 
-Enterprise-style lead hub: **Webhook → Edit Fields → Analyze Lead (`/analyze-lead`) → Switch on `priority` → High / Medium / Low → Respond to Webhook**.
+Enterprise-style lead hub: **Webhook → Edit Fields → Wake Render (`/health`) → Analyze Lead (`/analyze-lead`) → Switch on `priority` → High / Medium / Low → Respond to Webhook**.
 
 Importable workflow: [`n8n-priority-routing-workflow.json`](./n8n-priority-routing-workflow.json)  
 Repo copy: `~/Projects/lead-agent/n8n/lead-priority-routing.json`
@@ -14,8 +14,11 @@ POST /webhook/lead-priority
    Edit Fields          { message, email } from body
         │
         ▼
+   Wake Render          GET https://lead-agent-fjxq.onrender.com/health
+        │               retry 5x, never blocks (continues on error)
+        ▼
    Analyze Lead         POST https://lead-agent-fjxq.onrender.com/analyze-lead
-        │               Header Auth X-API-Key, retry 5x on fail
+        │               body from Edit Fields; Header Auth X-API-Key, retry 5x on fail
         │               returns priority, suggested_response, rationale, ...
         ▼
  Route by Priority      Switch on normalized priority
@@ -137,18 +140,18 @@ Without SMTP the Low branch continues (`continueOnFail`) so Postman still gets t
 
 ## Render cold start
 
-Render's free plan puts the service to sleep after about 15 minutes without traffic. The first request after that wakes it, which takes **30–50 s**. While it wakes, Render answers with **HTTP 503** and an HTML page that says "Application loading", not JSON from the API.
+Render's free plan puts the service to sleep after about 15 minutes without traffic. The first request after that wakes it, which takes **30–50 s**. While it wakes, Render can answer with **HTTP 503** and an HTML page that says "Application loading", not JSON from the API.
 
-That is why **Analyze Lead** has:
+The n8n engine caps **Wait Between Tries** at **5000 ms** and Max Tries at 5, whatever the node says. One node's retries therefore cover only about 20–25 s, which is not enough on its own. A live test confirmed this: with Render asleep, Analyze Lead failed with 503 on all 5 tries in about 26 s.
 
-- **Timeout:** 60000 ms (60 s) per try
-- **Retry On Fail:** on, **Max Tries:** 5 (n8n's maximum), **Wait Between Tries:** 20000 ms in the JSON
+So the workflow spends two retry budgets on the cold start:
 
-Caveat: the n8n engine caps **Wait Between Tries** at **5000 ms** (and Max Tries at 5), whatever the node says. So the real budget is 5 tries with about 5 s between them (about 20 s of waiting plus the request times). If Render answers 503 quickly every time, the tries can still run out before the service is awake. If the first production lead of the day still fails with 503:
+1. **Wake Render** does `GET https://lead-agent-fjxq.onrender.com/health` with no auth, a 60 s timeout, and 5 tries 5 s apart. It is set to **continue on error** with **Always Output Data**, so it never stops the flow. If Render is still waking after its tries, the flow moves on anyway.
+2. **Analyze Lead** then makes the real call: 60 s timeout, **Retry On Fail** with 5 tries (n8n's maximum). The JSON says 20000 ms between tries, but n8n uses 5000 ms.
 
-- open `https://lead-agent-fjxq.onrender.com/health` (browser or curl) a minute before testing to wake the service, or
-- add a **Wait** node plus a second HTTP Request (Max Tries is already at n8n's maximum of 5), or
-- move the service to a paid Render plan, which does not sleep.
+Because Wake Render's output replaces `$json`, Analyze Lead builds its body from `$('Edit Fields').item.json` (email, message), not from `$json`.
+
+If a cold start ever still fails, open `https://lead-agent-fjxq.onrender.com/health` a minute before testing, or move the service to a paid Render plan, which does not sleep.
 
 ## Switch expressions
 
@@ -229,7 +232,7 @@ Useful after Medium/High when you want quote / calendar / escalate tools. Add an
 |---------|--------|
 | Analyze Lead returns 401 | `missing_credentials`: the node has no Header Auth credential. `invalid_api_key`: the value is wrong. Use only the `la_…` part, not `n8n:la_…` |
 | Analyze Lead returns 429 `rate_limited` | Over `RATE_LIMIT` (default 20/minute per key). Wait `Retry-After` seconds, or raise the limit on the API |
-| Analyze Lead returns 503 with "Application loading" HTML | Render cold start. Wait about a minute and retry, or wake it first with `curl https://lead-agent-fjxq.onrender.com/health` (see [Render cold start](#render-cold-start)) |
+| Analyze Lead returns 503 with "Application loading" HTML | Render cold start that outlasted both Wake Render and Analyze Lead retries. Wait about a minute and retry, or wake it first with `curl https://lead-agent-fjxq.onrender.com/health` (see [Render cold start](#render-cold-start)) |
 | Analyze Lead fails / timeout | `curl https://lead-agent-fjxq.onrender.com/health`. Local dev: `curl http://127.0.0.1:8000/health`; from the container: `wget -qO- http://host.docker.internal:8000/health` |
 | Webhook returns 404 `webhook not registered` | Test URL without **Listen for test event**, or production URL while the workflow is inactive |
 | Always Other branch | Inspect Analyze Lead output for `priority` |

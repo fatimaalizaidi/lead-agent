@@ -45,7 +45,7 @@ flowchart TB
 
 | Endpoint | What it does |
 |---|---|
-| `POST /analyze-lead` | Triage: classifies a lead as High / Medium / Low priority, drafts a reply grounded in the knowledge base, and flags low-confidence answers for human review. n8n routes leads on this. |
+| `POST /analyze-lead` | Triage: classifies a lead as High / Medium / Low priority, drafts a reply grounded in the knowledge base, and flags low-confidence answers for human review. The fine-tuned classifier runs first: a confident Low (spam, no buying intent) is answered without calling OpenAI ([routing](docs/fine-tuning.md#classifier-first-routing)). n8n routes leads on this. |
 | `POST /multi-agent` | The assistant: the supervisor routes to Sales (custom quotes, demo slots), Knowledge (policy, SLA, pricing answers from RAG) or Escalation (Slack/email hand-off). |
 | `POST /agent-action` | Earlier single-agent version with tool calling, kept for the n8n workflow. |
 | `POST /jobs/analyze-lead`, `POST /jobs/multi-agent`, `GET /jobs/{id}`, `GET /jobs/stats` | Same work as a background job: returns `202` and a job id at once, then poll for the result; `/jobs/stats` shows queue health. For traffic spikes ([docs/job-queue.md](docs/job-queue.md)). |
@@ -63,9 +63,9 @@ The AI endpoints need an `X-API-Key` header or a bearer token once `API_KEYS` is
 - **LLMOps quality gate:** a free GitHub Actions workflow scores retrieval on all 26 golden questions (top-1 accuracy, hit rate, MRR, fact recall) on every PR and `main` push that touches retrieval or the knowledge base, plus weekly, and **fails if any metric drops under its floor**, so Render won't deploy a regression. It needs no LLM or API key: vector search uses a local embedding model.
 - **Production-ready API:** FastAPI with strict JSON-schema outputs (Pydantic), input guardrails, soft fallbacks when retrieval fails, `X-Request-ID` correlation, and Redis conversation memory.
 - **Background job queue:** `POST /jobs/*` returns `202` at once and an arq worker on Redis runs the AI call, with retries and backoff for OpenAI 429/502s and per-key job privacy. `GET /jobs/stats` is the monitoring view (queue depth, failures, p50/p95 wait and run times, worker heartbeat), standing in for Celery's Flower. The worker runs inside the API on the free plan, or as separately scaled services (`docker compose up --scale worker=3`).
-- **Fine-tuning:** a LoRA fine-tuned all-MiniLM-L6-v2 classifier (0.33% of weights trained, 17 s on a laptop), merged and exported to int8 ONNX (23 MB), serves `POST /classify-priority` in ~2 ms with no OpenAI cost. On 84 hand-written test leads: **85.7% accuracy and 100% High recall**, vs 72.6% for a frozen-encoder baseline. CI fails if a retrained model drops under its floors. `finetune/export_langsmith.py` builds the next training set from production traces (gpt-4o-mini as teacher), with PII masked, a time-based test split and nothing committed.
+- **Fine-tuning:** a LoRA fine-tuned all-MiniLM-L6-v2 classifier (0.33% of weights trained, 17 s on a laptop), merged and exported to int8 ONNX (23 MB), serves `POST /classify-priority` in ~2 ms with no OpenAI cost, and runs first on `/analyze-lead` so confident spam never reaches OpenAI (`GET /routing/stats` counts the calls saved). On 84 hand-written test leads: **85.7% accuracy and 100% High recall**, vs 72.6% for a frozen-encoder baseline. CI fails if a retrained model drops under its floors. `finetune/export_langsmith.py` builds the next training set from production traces (gpt-4o-mini as teacher), with PII masked, a time-based test split and nothing committed.
 - **API security:** API keys with zero-downtime rotation, OAuth2 client-credentials JWTs (revoked along with their key), and per-key `slowapi` rate limiting that returns 429 with `Retry-After`.
-- **CI/CD:** GitHub Actions runs ruff, **178 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
+- **CI/CD:** GitHub Actions runs ruff, **186 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
 - **Observability:** LangSmith traces every request (agent nodes, LLM calls, tools, retrieval steps), and structured JSON logs record latency, tokens, **cost in USD** and failed tool calls.
 - **Automation:** n8n workflows route leads to Slack or email by AI-assigned priority.
 
@@ -190,6 +190,7 @@ Example response shape:
 | `POST` | `/jobs/analyze-lead`, `/jobs/multi-agent` | Queue the same work in the background → `202` + job id ([docs](./docs/job-queue.md)) |
 | `GET` | `/jobs/{job_id}` | Job status and result |
 | `GET` | `/jobs/stats` | Queue health: counts, wait/run times, worker heartbeat |
+| `GET` | `/routing/stats` | OpenAI calls the classifier saved on `/analyze-lead` ([docs](./docs/fine-tuning.md#classifier-first-routing)) |
 | `POST` | `/classify-priority` | Priority from the local fine-tuned model, no OpenAI ([docs](./docs/fine-tuning.md)) |
 | `POST` | `/auth/token` | API key → JWT (OAuth2 client credentials, [docs](./docs/security.md)) |
 | `POST` | `/multi-agent` | LangGraph supervisor → Sales / Knowledge / Escalation agents ([docs](./docs/multi-agent-langgraph.md)) |

@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     memory_ttl_seconds: int = 604800
     # Max role+content messages retained per thread (oldest dropped).
     memory_max_messages: int = 20
+    # Classifier-first routing (routing.py): a confident Low from the fine-tuned classifier answers
+    # /analyze-lead without calling RAG or OpenAI. 0.7 = 0 wrong routes on the hand-written test set.
+    classifier_route_enabled: bool = True
+    classifier_route_threshold: float = 0.7
     # Multi-agent Router webhooks (optional). Empty → stub notifications only.
     slack_webhook_url: str = ""
     email_webhook_url: str = ""

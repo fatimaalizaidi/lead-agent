@@ -105,6 +105,26 @@ curl -s -X POST "$URL/classify-priority" -H "X-API-Key: la_..." -H "Content-Type
 
 The same API keys, rate limits and input guardrails apply as on `/analyze-lead`. If the model files are missing (`PRIORITY_MODEL_DIR`, default `finetune/model`), it returns `503 classifier_unavailable` and the rest of the API keeps working.
 
+## Classifier-first routing
+
+`POST /analyze-lead` (and the `/jobs/analyze-lead` background job) asks the classifier first (`routing.py`):
+
+```
+lead → guardrails → classifier (~3 ms, $0)
+                      ├─ Low with confidence ≥ 0.7 → fixed polite reply, no RAG, no OpenAI
+                      └─ anything else              → hybrid RAG + GPT-4o-mini, as before
+```
+
+- **Only Low is routed.** Wrongly routing a buyer to the canned reply loses a sale, while a spam lead sent to GPT only costs a fraction of a cent. So only one direction is automated.
+- **Why 0.7:** on the 84-lead hand-written test set, a confident Low at 0.7 covers 15 leads (18%) with **0 mistakes**. At 0.6 it covers 21 but routes one Medium lead. At 0.5 it routes four. The validation set (180 leads) has 0 mistakes at 0.5 and above. The classifier's top confidence is about 0.8, so thresholds of 0.8 and above route almost nothing. `tests/test_routing.py` checks that the threshold never routes a non-Low test lead.
+- **Follow-ups always use the LLM:** a lead with earlier turns in its thread goes to GPT, because the classifier can't see the conversation.
+- **Response fields:**
+  - `priority_source` is `classifier` or `llm`;
+  - `classifier_priority` and `classifier_confidence` are set on both paths, so n8n or a dashboard can compare the two models on real traffic.
+- **n8n needs no change:** a routed lead comes back as `priority: Low` with the reply in `suggested_response`, so the existing Low branch sends it as the auto-reply email.
+- **Counting what it saves:** `GET /routing/stats` (API key required) returns `analyzed`, `llm_calls_saved` and `saved_share`. The counts are kept in Redis on Render, so they survive restarts. The demo page shows the same numbers under *Live system*. Demo-page traffic is not counted, because it always runs GPT so that visitors can compare both models.
+- **Settings:** `CLASSIFIER_ROUTE_ENABLED` (default `true`) and `CLASSIFIER_ROUTE_THRESHOLD` (default `0.7`). If the model files are missing, every lead goes to the LLM.
+
 ## Design notes
 
 - **Why a small encoder, not a fine-tuned GPT:** the task is classification, not generation. A 22M-parameter encoder fits in the free Render container, answers in milliseconds and costs nothing per call. Fine-tuning gpt-4o-mini would still cost per token and add a network round trip.

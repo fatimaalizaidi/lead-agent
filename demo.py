@@ -34,6 +34,7 @@ from slowapi.util import get_remote_address
 import classifier
 import jobs
 import memory
+import routing
 from config import get_settings
 from errors import AppError
 from guardrails import sanitize_message
@@ -181,7 +182,8 @@ async def _analyze(message: str, thread_id: str | None) -> tuple[LLMResult | Non
     started = time.perf_counter()
     try:
         result = await run_analyze_lead(
-            AnalyzeLeadRequest(message=message, email=DEMO_EMAIL, thread_id=thread_id)
+            AnalyzeLeadRequest(message=message, email=DEMO_EMAIL, thread_id=thread_id),
+            classifier_route=False,  # the page compares both models, so GPT always runs here
         )
     except AppError as exc:
         logger.warning("demo analysis failed error_code={}", exc.error_code)
@@ -272,4 +274,5 @@ async def demo_info() -> dict[str, Any]:
         "budget_daily": settings.demo_daily_llm_limit,
         "queue": stats,
         "memory": memory.memory_enabled(),
+        "routing": (await asyncio.to_thread(routing.stats)).model_dump(),
     }

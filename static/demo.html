@@ -186,13 +186,13 @@
 
   <section class="block">
     <h2>What happens when you click</h2>
-    <p class="lead">The same code path the production API runs for every lead the n8n workflow sends it.</p>
+    <p class="lead">What the production API does with every lead the n8n workflow sends it. On this page GPT always runs as well, so you can compare the two models.</p>
     <div class="flow">
       <div class="card step"><div class="k">1 · Guardrails</div><h4>Input checks</h4><p>Length limits and prompt-injection detection. Try the 🛡️ example.</p></div>
-      <div class="card step"><div class="k">2 · Retrieve</div><h4>Hybrid RAG</h4><p>Vector search + BM25, fused with RRF, then re-ranked by a cross-encoder.</p></div>
-      <div class="card step"><div class="k">3 · Reason</div><h4>GPT-4o-mini</h4><p>Strict JSON schema output: priority, reply, rationale, sources.</p></div>
-      <div class="card step"><div class="k">4 · Remember</div><h4>Redis memory</h4><p>Follow-ups in the same thread see the earlier turns.</p></div>
-      <div class="card step"><div class="k">In parallel</div><h4>LoRA classifier</h4><p>Small priority model: 0.33% of weights trained, served without PyTorch.</p></div>
+      <div class="card step"><div class="k">2 · Route</div><h4>LoRA classifier first</h4><p>A confident Low (spam, no buying intent) is answered here in ms, for free. GPT is never called.</p></div>
+      <div class="card step"><div class="k">3 · Retrieve</div><h4>Hybrid RAG</h4><p>Everything else: vector search + BM25 keyword search, fused with Reciprocal Rank Fusion.</p></div>
+      <div class="card step"><div class="k">4 · Reason</div><h4>GPT-4o-mini</h4><p>Strict JSON schema output: priority, reply, rationale, sources.</p></div>
+      <div class="card step"><div class="k">5 · Remember</div><h4>Redis memory</h4><p>Follow-ups in the same thread see the earlier turns.</p></div>
     </div>
   </section>
 
@@ -211,12 +211,13 @@
 
   <section class="block">
     <h2>Live system</h2>
-    <p class="lead">Read from this server right now: the Redis-backed job queue and memory behind the API.</p>
+    <p class="lead">Read from this server right now: the Redis-backed job queue, memory and classifier routing behind the API.</p>
     <div class="live">
       <div class="card stat"><div class="n"><span class="dot" id="w-dot"></span><span id="w-state">–</span></div><div class="l">background worker</div></div>
       <div class="card stat"><div class="n" id="q-done">–</div><div class="l">jobs completed (last hour)</div></div>
       <div class="card stat"><div class="n" id="q-run">–</div><div class="l">median job run time</div></div>
       <div class="card stat"><div class="n"><span class="dot" id="mem-dot"></span><span id="mem-state">–</span></div><div class="l">conversation memory</div></div>
+      <div class="card stat"><div class="n" id="r-saved">–</div><div class="l">GPT calls saved by the classifier (API leads)</div></div>
     </div>
   </section>
 
@@ -354,6 +355,8 @@
       if (info.classifier && info.classifier.trainable_params) $("m-params").textContent = info.classifier.trainable_params.toLocaleString();
       if (info.classifier && info.classifier.size_mb) $("m-size").textContent = info.classifier.size_mb + " MB";
       $("mem-dot").className = "dot" + (info.memory ? " on" : ""); $("mem-state").textContent = info.memory ? "On" : "Off";
+      const r = info.routing;
+      if (r) $("r-saved").textContent = r.analyzed ? `${r.llm_calls_saved} of ${r.analyzed} (${Math.round(r.saved_share * 100)}%)` : "0 so far";
       const q = info.queue;
       if (q) {
         $("w-dot").className = "dot" + (q.worker.alive ? " on" : ""); $("w-state").textContent = q.worker.alive ? "Running" : "Idle";

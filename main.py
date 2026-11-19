@@ -7,7 +7,7 @@ import json
 import time
 from contextlib import asynccontextmanager
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 import openai
 from fastapi import Depends, FastAPI, Request
@@ -17,6 +17,7 @@ from pydantic import BaseModel, EmailStr, Field, ValidationError, field_validato
 import classifier
 import demo
 import jobs
+import routing
 from agent import (
     AgentActionRequest,
     AgentActionResponse,
@@ -161,6 +162,14 @@ class AnalyzeLeadResponse(BaseModel):
         ...,
         description="Conversation thread id (echoed or newly generated)",
     )
+    priority_source: Literal["llm", "classifier"] = Field(
+        default="llm",
+        description="classifier = the fine-tuned model was confident it's Low, so OpenAI was not called",
+    )
+    classifier_priority: Priority | None = Field(
+        default=None, description="The fine-tuned classifier's label (null when it didn't run)"
+    )
+    classifier_confidence: float | None = Field(default=None, description="Its confidence, 0–1")
 
 
 class ErrorBody(BaseModel):
@@ -454,8 +463,19 @@ async def analyze_lead(request: Request, body: AnalyzeLeadRequest) -> AnalyzeLea
     return await run_analyze_lead(body)
 
 
-async def run_analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
-    """The /analyze-lead work, shared by the endpoint and the background job (jobs.py)."""
+def _classifier_fields(decision: routing.Decision) -> dict[str, Any]:
+    return {
+        "classifier_priority": Priority(decision.label) if decision.label else None,
+        "classifier_confidence": decision.confidence,
+    }
+
+
+async def run_analyze_lead(body: AnalyzeLeadRequest, *, classifier_route: bool = True) -> AnalyzeLeadResponse:
+    """The /analyze-lead work, shared by the endpoint and the background job (jobs.py).
+
+    With ``classifier_route`` (the default), a confident Low from the fine-tuned classifier is
+    answered without RAG or OpenAI (routing.py). /demo turns it off to compare both models.
+    """
     started = time.perf_counter()
     thread_id = resolve_thread_id(body.thread_id)
     # body.message / body.email already sanitized by Pydantic validators (guardrails).
@@ -466,10 +486,38 @@ async def run_analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
     )
 
     try:
+        prior = history_for_openai(thread_id)
+        decision = (
+            await routing.decide_async(body.message, has_history=bool(prior))
+            if classifier_route
+            else routing.Decision(True, reason="caller_disabled")
+        )
+        if not decision.use_llm:
+            append_messages(
+                thread_id,
+                [
+                    {"role": "user", "content": body.message},
+                    {"role": "assistant", "content": routing.LOW_INTENT_REPLY},
+                ],
+            )
+            routing.record(skipped=True)
+            log_request_end(
+                status=200, total_ms=elapsed_ms(started), needs_human_review=False, path="/analyze-lead"
+            )
+            logger.info("analyze-lead routed by classifier confidence={}", decision.confidence)
+            return AnalyzeLeadResponse(
+                email=body.email,  # type: ignore[arg-type]
+                priority=Priority.LOW,
+                suggested_response=routing.LOW_INTENT_REPLY,
+                rationale=f"Fine-tuned classifier: low intent (confidence {decision.confidence:.2f}); LLM skipped.",
+                thread_id=thread_id,
+                priority_source="classifier",
+                **_classifier_fields(decision),
+            )
+
         chunks, rag_unavailable, low_confidence, _best_score = await _retrieve_knowledge(
             body.message
         )
-        prior = history_for_openai(thread_id)
 
         # If RAG is down, call LLM without KB; still require a successful model response.
         try:
@@ -521,6 +569,8 @@ async def run_analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
             ],
         )
 
+        if classifier_route:
+            routing.record(skipped=False)
         log_request_end(
             status=200,
             total_ms=elapsed_ms(started),
@@ -536,6 +586,7 @@ async def run_analyze_lead(body: AnalyzeLeadRequest) -> AnalyzeLeadResponse:
             needs_human_review=needs_human_review,
             fallback_reason=fallback_reason,
             thread_id=thread_id,
+            **_classifier_fields(decision),
         )
     except AppError as exc:
         log_request_end(
@@ -777,6 +828,13 @@ async def get_queue_stats(request: Request, client_id: str | None = Depends(requ
     "stats" isn't read as a job id.
     """
     return await jobs.queue_stats()
+
+
+@app.get("/routing/stats", response_model=routing.RoutingStats, dependencies=[Depends(require_client)])
+@limit_poll
+async def get_routing_stats(request: Request) -> routing.RoutingStats:
+    """How many /analyze-lead requests the fine-tuned classifier answered without calling OpenAI."""
+    return await asyncio.to_thread(routing.stats)
 
 
 @app.get("/jobs/{job_id}", response_model=jobs.JobStatusResponse, responses=_JOB_ERRORS, tags=["jobs"])

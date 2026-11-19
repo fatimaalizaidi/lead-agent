@@ -92,6 +92,13 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"message":"Cheap SEO backlinks, reply for our price list!"}' | tee /dev/stderr \
             | python3 -c "import json,sys; assert json.load(sys.stdin)['classifier']['priority'] == 'Low'"
+      - name: Spam lead is answered by the classifier without OpenAI (placeholder key in the image)
+        run: |
+          curl -fsS -X POST http://127.0.0.1:8000/analyze-lead \
+            -H "Content-Type: application/json" \
+            -d '{"message":"Cheap SEO backlinks and guest posts! Reply now for our price list.","email":"seo@spam.example"}' \
+            | tee /dev/stderr \
+            | python3 -c "import json,sys; b=json.load(sys.stdin); assert (b['priority'], b['priority_source']) == ('Low', 'classifier')"
       - name: Container logs
         if: always()
         run: docker logs lead-agent 2>&1 | tail -50 || true

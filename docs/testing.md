@@ -66,6 +66,28 @@ pytest.ini             # asyncio_mode = auto
 requirements-dev.txt
 ```
 
+## Live test run (real server, real OpenAI)
+
+The tests above mock OpenAI. To check the deployed system end to end, `eval/live_run.py` posts the 84 labelled, hand-written test leads (`finetune/data/test.jsonl`) to `POST /analyze-lead` one at a time and writes a report. The report covers:
+- accuracy and High recall against the known labels;
+- how many leads the classifier answered without OpenAI, and whether any of those were wrong;
+- GPT's accuracy on the other leads;
+- latency p50/p95 for each path, the human-review rate and errors;
+- the estimated OpenAI cost.
+
+```bash
+export LEAD_AGENT_API_KEY=la_...           # or a LEAD_AGENT_API_KEY= line in .env; never printed
+python -m eval.live_run                     # dry run: shows what would be sent and the max cost
+python -m eval.live_run --yes --limit 12    # quick check, labels mixed evenly
+python -m eval.live_run --yes               # all 84 leads, ~5 minutes, about $0.01
+```
+
+- The script calls the API directly, not the n8n webhook, so a run doesn't send Slack alerts or auto-reply emails.
+- Requests are paced under the default 20/minute rate limit, and a 429 waits for `Retry-After`. The script wakes a sleeping Render service first.
+- Reports go to `eval/results/live-<time>.md`, `.csv` and `.json` (gitignored).
+- `--url http://127.0.0.1:8000 --pace 0` runs it against a local server.
+- The leads are fictional. They do show up in LangSmith traces, but `finetune/export_langsmith.py` drops test-set leads, so they never leak into training.
+
 ## CI notes
 
 - Run `pip install -r requirements-dev.txt && pytest` with no Redis / OpenAI credentials.

@@ -1,0 +1,51 @@
+# Simulated lead traffic: every hour, send 3 fresh, varied leads to the live API (eval/traffic.py).
+#
+# Why: the deployed agent keeps getting realistic traffic, so /routing/stats and LangSmith fill
+# with real numbers, and each run's job summary shows whether every lead got the right priority.
+#
+# Cost: about 72 leads a day. Spam is answered by the fine-tuned classifier for free; the rest
+# are gpt-4o-mini calls at about $0.00015 each, so roughly $0.30 a month. Well under the API's
+# default 200/day per-key limit (give it its own key in API_KEYS so n8n's quota isn't shared).
+#
+# Turn on: add the repository secret LEAD_AGENT_API_KEY (Settings → Secrets and variables →
+# Actions), set to the la_… part of a key in the Render service's API_KEYS. Without the secret
+# every run is a no-op that passes. Turn off: disable this workflow in the Actions tab.
+#
+# Calls the API directly, not the n8n webhook: no Slack alerts or auto-reply emails.
+
+name: Simulated traffic
+
+on:
+  schedule:
+    - cron: "17 * * * *" # every hour at :17 (GitHub may delay scheduled runs at busy times)
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "How many leads to send"
+        default: "3"
+
+concurrency:
+  group: simulated-traffic
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  traffic:
+    name: Send simulated leads
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      LEAD_AGENT_API_KEY: ${{ secrets.LEAD_AGENT_API_KEY }}
+      OPENAI_API_KEY: not-used # Settings needs a value; nothing here calls OpenAI directly
+      HNSWLIB_NO_NATIVE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Send leads and write the report to the job summary
+        run: python -m eval.traffic --yes --count "${{ inputs.count || '3' }}"

@@ -50,6 +50,8 @@ DEFAULT_URL = "https://lead-agent-fjxq.onrender.com"
 DEFAULT_FILE = ROOT / "finetune" / "data" / "test.jsonl"
 RESULTS_DIR = ROOT / "eval" / "results"
 KEY_ENV = "LEAD_AGENT_API_KEY"
+# Sender domain of every test / simulated lead; finetune/export_langsmith.py skips it.
+SIMULATED_DOMAIN = "simulated.example"
 COST_PER_LLM_CALL = 0.00015  # gpt-4o-mini, one /analyze-lead with RAG context (LangSmith average)
 FIELDS = [
     "n", "gold", "priority", "priority_source", "classifier_priority", "classifier_confidence",
@@ -103,7 +105,7 @@ def routing_stats(client: httpx.Client) -> dict[str, Any] | None:
 
 def send(client: httpx.Client, n: int, lead: dict[str, str], *, sleep=time.sleep) -> dict[str, Any]:
     """POST one lead; retries 429 (Retry-After) and 502/503 (cold start, upstream) up to 3 times."""
-    payload = {"email": f"live-test-{n}@example.com", "message": lead["text"]}
+    payload = {"email": f"live-test-{n}@{SIMULATED_DOMAIN}", "message": lead["text"]}
     row: dict[str, Any] = {"n": n, "gold": lead["label"], "text": lead["text"]}
     for attempt in range(4):
         started = time.perf_counter()

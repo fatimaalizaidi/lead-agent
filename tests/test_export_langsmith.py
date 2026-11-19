@@ -57,6 +57,7 @@ def test_masks_pii_in_the_message() -> None:
         (llm_run("x", inputs={}), "no_inputs"),  # LANGSMITH_HIDE_INPUTS
         (llm_run("x", content="You are the sales agent. Lead says hi"), "not_analyze_lead"),  # /multi-agent
         (llm_run("x", history=1), "followup_turn"),
+        (llm_run("x", content=user_content("x", email="live-test-1@simulated.example")), "simulated_traffic"),
         (llm_run("x", outputs={"choices": [{"message": {"content": "not json"}}]}), "unparseable_answer"),
         (llm_run("x", priority="Urgent"), "unparseable_answer"),
     ],

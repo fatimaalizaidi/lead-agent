@@ -11,7 +11,8 @@ and real traffic becomes the training data: distillation from production logs.
   masked, and the sender's email is dropped entirely.
 - **Clean labels:** only successful runs whose answer parses to High/Medium/Low. Follow-up turns
   (runs with earlier conversation turns) are skipped, because their priority depends on context
-  the student never sees. Duplicates and any lead in the hand-written test set are dropped.
+  the student never sees. Duplicates, any lead in the hand-written test set, and simulated
+  traffic (``eval/traffic.py``, ``eval/live_run.py``: sender ``@simulated.example``) are dropped.
 - **Honest evaluation:** the newest ``--test-share`` of runs (by time) become
   ``production_test.jsonl``, never trained on. That's the student's accuracy against the teacher
   on real, future-looking traffic. The rest are mixed with the synthetic set into ``train_mix.jsonl``.
@@ -42,7 +43,9 @@ from finetune.generate_dataset import DATA_DIR, LABELS, read_jsonl, write_jsonl
 
 PRIVATE_DIR = DATA_DIR / "private"
 # Must match the user message built in main._analyze_with_openai.
-USER_CONTENT_RE = re.compile(r"\Aemail:[^\n]*\nmessage: (?P<message>.*?)\n\nCOMPANY KNOWLEDGE", re.DOTALL)
+USER_CONTENT_RE = re.compile(r"\Aemail:(?P<email>[^\n]*)\nmessage: (?P<message>.*?)\n\nCOMPANY KNOWLEDGE", re.DOTALL)
+# eval/live_run.py and eval/traffic.py send from this domain: test traffic, not real leads.
+SIMULATED_DOMAIN = "@simulated.example"
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
 _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
@@ -101,6 +104,8 @@ def parse_run(run: Any, *, include_followups: bool = False) -> tuple[dict[str, s
     match = USER_CONTENT_RE.match(_content(user_messages[-1]) or "")
     if not match:
         return None, "not_analyze_lead"  # /multi-agent, /agent-action or other LLM calls
+    if match.group("email").strip().lower().endswith(SIMULATED_DOMAIN):
+        return None, "simulated_traffic"
     if len(user_messages) > 1 and not include_followups:
         return None, "followup_turn"
     try:

@@ -88,6 +88,22 @@ python -m eval.live_run --yes               # all 84 leads, ~5 minutes, about $0
 - `--url http://127.0.0.1:8000 --pace 0` runs it against a local server.
 - The leads are fictional. They do show up in LangSmith traces, but `finetune/export_langsmith.py` drops test-set leads, so they never leak into training.
 
+## Simulated traffic (every hour, automatic)
+
+`.github/workflows/traffic.yml` runs `eval/traffic.py` every hour. Each run sends 3 fresh leads to the live API, mixed at random from four kinds:
+- **Generated leads:** a new random company, seat count, budget, timeline and wording every time.
+- **Hand-written leads** from the test set: worded differently and never trained on.
+- **Roman Urdu leads.**
+- **Prompt-injection attempts:** each one must come back `400`.
+
+Every lead has a known label. The run's job summary in the Actions tab shows a table with the expected and actual priority, which path decided (classifier or GPT), and latency, plus the server's running `/routing/stats` total.
+
+- **Turn on:** add the repository secret `LEAD_AGENT_API_KEY`. Best practice is a separate key in `API_KEYS`, so n8n's 200/day quota isn't shared. Without the secret, each run is a passing no-op. **Turn off:** disable the workflow in the Actions tab.
+- **Cost:** about 72 leads a day. Spam is answered by the classifier for free, so this comes to roughly $0.30 a month. Run it on demand with *Run workflow* and choose how many leads.
+- **Caveat:** generated leads follow the same templates the classifier was trained on, so it looks better on them than on real traffic. The hand-written leads are the honest check.
+- **Dry run:** `python -m eval.traffic` prints the leads it would send.
+- Like `eval/live_run.py`, it calls the API directly, not n8n, so there are no Slack alerts or emails. Its leads are sent from `@simulated.example`, which `finetune/export_langsmith.py` skips, so test traffic never becomes training data.
+
 ## CI notes
 
 - Run `pip install -r requirements-dev.txt && pytest` with no Redis / OpenAI credentials.

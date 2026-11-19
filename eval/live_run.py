@@ -103,14 +103,21 @@ def routing_stats(client: httpx.Client) -> dict[str, Any] | None:
         return None
 
 
-def send(client: httpx.Client, n: int, lead: dict[str, str], *, sleep=time.sleep) -> dict[str, Any]:
-    """POST one lead; retries 429 (Retry-After) and 502/503 (cold start, upstream) up to 3 times."""
+def send(
+    client: httpx.Client, n: int, lead: dict[str, str], *, sleep=time.sleep, path: str = "/analyze-lead"
+) -> dict[str, Any]:
+    """POST one lead; retries 429 (Retry-After) and 502/503 (cold start, upstream) up to 3 times.
+
+    ``path="/classify-priority"`` asks only the fine-tuned classifier: no OpenAI call, $0.
+    """
     payload = {"email": f"live-test-{n}@{SIMULATED_DOMAIN}", "message": lead["text"]}
+    if path == "/classify-priority":
+        payload = {"message": lead["text"]}
     row: dict[str, Any] = {"n": n, "gold": lead["label"], "text": lead["text"]}
     for attempt in range(4):
         started = time.perf_counter()
         try:
-            resp = client.post("/analyze-lead", json=payload, timeout=90)
+            resp = client.post(path, json=payload, timeout=90)
         except httpx.HTTPError as exc:
             row.update(status=0, error_code=type(exc).__name__)
             sleep(10)
@@ -122,6 +129,9 @@ def send(client: httpx.Client, n: int, lead: dict[str, str], *, sleep=time.sleep
             for key in ("priority", "priority_source", "classifier_priority", "classifier_confidence",
                         "needs_human_review", "fallback_reason"):
                 row[key] = body.get(key)
+            if path == "/classify-priority":
+                row.update(priority_source="classifier", classifier_priority=body.get("priority"),
+                           classifier_confidence=body.get("confidence"))
             row["error_code"] = None
             return row
         try:

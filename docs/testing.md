@@ -90,18 +90,18 @@ python -m eval.live_run --yes               # all 84 leads, ~5 minutes, about $0
 
 ## Simulated traffic (every hour, automatic)
 
-`.github/workflows/traffic.yml` runs `eval/traffic.py` every hour. Each run sends 3 fresh leads to the live API, mixed at random from four kinds:
+`.github/workflows/traffic.yml` runs `eval/traffic.py` every hour. Each run sends 3 fresh leads to the live API, mixed at random from four kinds. **It costs $0:** scheduled runs use `POST /classify-priority`, the fine-tuned classifier inside the API, which never calls OpenAI. GitHub Actions is free for public repos, and Render's free plan doesn't charge per request.
 - **Generated leads:** a new random company, seat count, budget, timeline and wording every time.
 - **Hand-written leads** from the test set: worded differently and never trained on.
 - **Roman Urdu leads.**
 - **Prompt-injection attempts:** each one must come back `400`.
 
-Every lead has a known label. The run's job summary in the Actions tab shows a table with the expected and actual priority, which path decided (classifier or GPT), and latency, plus the server's running `/routing/stats` total.
+Every lead has a known label. The run's job summary in the Actions tab shows a table with the expected and actual priority, latency, and whether injections were blocked.
 
 - **Turn on:** add the repository secret `LEAD_AGENT_API_KEY`. Best practice is a separate key in `API_KEYS`, so n8n's 200/day quota isn't shared. Without the secret, each run is a passing no-op. **Turn off:** disable the workflow in the Actions tab.
-- **Cost:** about 72 leads a day. Spam is answered by the classifier for free, so this comes to roughly $0.30 a month. Run it on demand with *Run workflow* and choose how many leads.
+- **GPT on demand only:** *Run workflow* lets you choose the number of leads and tick `use_gpt`. That sends them through `/analyze-lead` (GPT-4o-mini + RAG, ~$0.00015 per lead), and the summary then also shows the server's `/routing/stats` total. Nothing on the schedule ever does this.
 - **Caveat:** generated leads follow the same templates the classifier was trained on, so it looks better on them than on real traffic. The hand-written leads are the honest check.
-- **Dry run:** `python -m eval.traffic` prints the leads it would send.
+- **Dry run:** `python -m eval.traffic` prints the leads it would send. `--yes` sends them for free, and `--yes --use-gpt` uses the full pipeline.
 - Like `eval/live_run.py`, it calls the API directly, not n8n, so there are no Slack alerts or emails. Its leads are sent from `@simulated.example`, which `finetune/export_langsmith.py` skips, so test traffic never becomes training data.
 
 ## CI notes

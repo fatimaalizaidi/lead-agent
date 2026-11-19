@@ -1,11 +1,11 @@
 # Simulated lead traffic: every hour, send 3 fresh, varied leads to the live API (eval/traffic.py).
 #
-# Why: the deployed agent keeps getting realistic traffic, so /routing/stats and LangSmith fill
-# with real numbers, and each run's job summary shows whether every lead got the right priority.
+# Why: the deployed service keeps getting realistic traffic, and each run's job summary shows
+# whether every lead got the right priority and whether prompt injections were blocked.
 #
-# Cost: about 72 leads a day. Spam is answered by the fine-tuned classifier for free; the rest
-# are gpt-4o-mini calls at about $0.00015 each, so roughly $0.30 a month. Well under the API's
-# default 200/day per-key limit (give it its own key in API_KEYS so n8n's quota isn't shared).
+# Cost: $0. Scheduled runs use POST /classify-priority, the fine-tuned classifier inside the API,
+# which never calls OpenAI. GitHub Actions is free for public repos and Render's free plan has no
+# per-request charge. Only a manual run with "use_gpt" ticked calls OpenAI (~$0.00015 per lead).
 #
 # Turn on: add the repository secret LEAD_AGENT_API_KEY (Settings → Secrets and variables →
 # Actions), set to the la_… part of a key in the Render service's API_KEYS. Without the secret
@@ -23,6 +23,10 @@ on:
       count:
         description: "How many leads to send"
         default: "3"
+      use_gpt:
+        description: "Use GPT-4o-mini + RAG (costs ~$0.00015 per lead). Off = free classifier only."
+        type: boolean
+        default: false
 
 concurrency:
   group: simulated-traffic
@@ -48,4 +52,4 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Send leads and write the report to the job summary
-        run: python -m eval.traffic --yes --count "${{ inputs.count || '3' }}"
+        run: python -m eval.traffic --yes --count "${{ inputs.count || '3' }}" ${{ inputs.use_gpt && '--use-gpt' || '' }}

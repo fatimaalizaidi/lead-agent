@@ -52,9 +52,30 @@ def test_full_run_writes_summary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
     client = httpx.Client(base_url="http://fake", transport=httpx.MockTransport(handler))
     summary = tmp_path / "summary.md"
-    assert traffic.main(["--yes", "--summary-file", str(summary)], client=client, sleep=lambda s: None) == 0
+    argv = ["--yes", "--use-gpt", "--summary-file", str(summary)]
+    assert traffic.main(argv, client=client, sleep=lambda s: None) == 0
     md = summary.read_text()
     assert "Right: **2 of 2** leads" in md
     assert "Prompt injections blocked: 1 of 1" in md
     assert "Answered by the classifier without OpenAI: 1" in md
     assert "4 of 10 leads answered without OpenAI (40%)" in md
+
+
+def test_default_run_is_free(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without --use-gpt every lead goes to /classify-priority, which never calls OpenAI."""
+    leads = [{"text": "Cheap backlinks", "label": "Low", "kind": "generated"}]
+    monkeypatch.setattr(traffic, "pick_leads", lambda count, rng: leads)
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "ok"})
+        assert "email" not in json.loads(request.content)
+        return httpx.Response(200, json={"priority": "Low", "confidence": 0.8})
+
+    client = httpx.Client(base_url="http://fake", transport=httpx.MockTransport(handler))
+    summary = tmp_path / "summary.md"
+    assert traffic.main(["--yes", "--summary-file", str(summary)], client=client, sleep=lambda s: None) == 0
+    assert paths == ["/health", "/classify-priority"]
+    assert "classifier only, $0" in summary.read_text() and "Right: **1 of 1**" in summary.read_text()

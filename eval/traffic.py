@@ -15,12 +15,18 @@ Each run mixes, in random order:
 - now and then an **edge case**: a prompt-injection attempt (must be blocked with 400), or a
   Roman Urdu lead.
 
+**Free by default:** leads go to ``POST /classify-priority``, the fine-tuned classifier inside the
+API, which never calls OpenAI. That checks the live server, the classifier and the injection
+guardrail for $0. ``--use-gpt`` sends them to ``/analyze-lead`` instead (GPT-4o-mini + RAG,
+~$0.00015 per lead that isn't confident spam), for when you choose to spend a little.
+
 Every lead has a known label, so the report shows how often the system was right. Same safety as
 ``eval/live_run.py``: it calls the API, not n8n (no Slack alerts or emails), the key comes from
 ``LEAD_AGENT_API_KEY`` and is never printed, and nothing is sent without ``--yes``.
 
-    python -m eval.traffic                 # dry run: prints the leads it would send
-    python -m eval.traffic --yes --count 3
+    python -m eval.traffic                    # dry run: prints the leads it would send
+    python -m eval.traffic --yes --count 3    # free: classifier only
+    python -m eval.traffic --yes --use-gpt    # full pipeline, costs a little
 """
 
 from __future__ import annotations
@@ -100,14 +106,17 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None, slee
     p.add_argument("--count", type=int, default=3)
     p.add_argument("--seed", type=int, default=None, help="repeat a run exactly (default: random)")
     p.add_argument("--pace", type=float, default=3.2)
-    p.add_argument("--yes", action="store_true", help="really send (~$0.00015 per GPT-analysed lead)")
+    p.add_argument("--yes", action="store_true", help="really send")
+    p.add_argument("--use-gpt", action="store_true",
+                   help="use /analyze-lead (GPT + RAG, ~$0.00015 per lead) instead of the free classifier")
     p.add_argument("--summary-file", type=Path, default=os.environ.get("GITHUB_STEP_SUMMARY") or None)
     args = p.parse_args(argv)
 
     leads = pick_leads(args.count, random.Random(args.seed))
     url = args.url.rstrip("/")
+    path = "/analyze-lead" if args.use_gpt else "/classify-priority"
     if not args.yes:
-        print(f"dry run: would send {len(leads)} leads to {url}/analyze-lead")
+        print(f"dry run: would send {len(leads)} leads to {url}{path}" + ("" if args.use_gpt else " (free)"))
         for lead in leads:
             print(f"  [{lead['kind']}/{lead['label']}] {lead['text']}")
         return 0
@@ -122,20 +131,21 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None, slee
         if not live_run.wake(client):
             print("The server never answered /health.")
             return 1
-        before = live_run.routing_stats(client)
+        before = live_run.routing_stats(client) if args.use_gpt else None
         rows = []
         for n, lead in enumerate(leads, 1):
-            row = live_run.send(client, n, lead, sleep=sleep)
+            row = live_run.send(client, n, lead, sleep=sleep, path=path)
             row["kind"] = lead["kind"]
             rows.append(row)
             if n < len(leads):
                 sleep(args.pace)
-        after = live_run.routing_stats(client)
+        after = live_run.routing_stats(client) if args.use_gpt else None
     finally:
         if own:
             client.close()
 
-    md = f"## Simulated traffic: {len(rows)} leads → {url}\n\n" + report(rows, before, after)
+    mode = "GPT-4o-mini + RAG" if args.use_gpt else "fine-tuned classifier only, $0"
+    md = f"## Simulated traffic: {len(rows)} leads → {url}{path} ({mode})\n\n" + report(rows, before, after)
     print(md)
     print(json.dumps({"routing": after}, default=str))
     if args.summary_file:

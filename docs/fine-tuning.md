@@ -9,7 +9,7 @@
 | Cost per lead | OpenAI tokens | **$0** |
 | Runs where | OpenAI | Inside the API container (onnxruntime) |
 
-**Use in n8n:** call `/classify-priority` first, archive or park confident `Low` leads (spam, job seekers, wrong numbers), and send only `High`/`Medium` leads to `/analyze-lead` for a drafted reply. LLM spend then scales with real leads, not with spam.
+**In production the API does this itself:** `/analyze-lead` asks the classifier first, and a lead it is confident is `Low` (spam, job seekers, wrong numbers) gets a polite fixed reply without RAG or OpenAI. Only the rest reach gpt-4o-mini, so LLM spend scales with real leads, not with spam. See [classifier-first routing](#classifier-first-routing). On the live service it answered 14 of 84 test leads alone, with 0 mistakes.
 
 ## Results
 

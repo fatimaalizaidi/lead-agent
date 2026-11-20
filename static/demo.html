@@ -129,7 +129,7 @@
       <div class="mark">LA</div>
       <div>
         <h1>Lead Agent</h1>
-        <p>AI lead triage, running in production</p>
+        <p>AI lead triage, running in production · by Fatima Zaidi</p>
       </div>
     </div>
     <nav>
@@ -210,6 +210,16 @@
   </section>
 
   <section class="block">
+    <h2>The whole pipeline, tested live</h2>
+    <p class="lead">The same 84 labelled leads sent one by one to this deployed API, the way n8n sends them. The classifier answers only when it is sure a lead is low intent; GPT handles the rest.</p>
+    <div class="stats">
+      <div class="card stat"><div class="n">98.8%</div><div class="l">accuracy end to end (83 of 84)</div></div>
+      <div class="card stat"><div class="n">25 / 25</div><div class="l">buying leads caught</div></div>
+      <div class="card stat"><div class="n">17%</div><div class="l">answered without calling OpenAI, 0 mistakes</div></div>
+    </div>
+  </section>
+
+  <section class="block">
     <h2>Live system</h2>
     <p class="lead">Read from this server right now: the Redis-backed job queue, memory and classifier routing behind the API.</p>
     <div class="live">
@@ -232,7 +242,8 @@
   </section>
 
   <footer>
-    Lead Agent · <a href="https://github.com/fatimaalizaidi/lead-agent" target="_blank" rel="noopener">source on GitHub</a> ·
+    Built by <strong>Fatima Zaidi</strong> · <a href="https://github.com/fatimaalizaidi" target="_blank" rel="noopener">GitHub profile</a> ·
+    <a href="https://github.com/fatimaalizaidi/lead-agent" target="_blank" rel="noopener">source code</a> ·
     <a href="/docs" target="_blank" rel="noopener">OpenAPI docs</a> · Free-tier hosting: the first request after a quiet spell can take a few seconds.
   </footer>
 </div>

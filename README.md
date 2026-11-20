@@ -13,6 +13,10 @@ An AI back end that triages inbound sales leads and answers them. A LangGraph su
 
 **Live API:** <https://lead-agent-fjxq.onrender.com/docs>. It runs on Render's free plan, so the first request after a quiet period takes about 30–50 s while it wakes up.
 
+**Live test, 84 labelled leads:** **98.8% accuracy, 100% of buying leads caught**, and 17% of leads answered by the fine-tuned classifier without calling OpenAI, for about one US cent ([details](#results)).
+
+Built by **Fatima Zaidi** ([GitHub](https://github.com/fatimaalizaidi)).
+
 ## Architecture
 
 ```mermaid
@@ -27,6 +31,7 @@ flowchart TB
         sales["Sales agent"]
         know["Knowledge agent"]
         esc["Escalation agent"]
+        clf["Fine-tuned classifier: LoRA MiniLM, int8 ONNX, ~3 ms, $0"]
         rag["Hybrid RAG: ChromaDB + BM25, fused with RRF"]
         tools["Tools: quote, calendar, Slack/email hand-off"]
     end
@@ -36,7 +41,8 @@ flowchart TB
     sup --> sales --> tools
     sup --> know --> rag
     sup --> esc --> tools
-    triage --> rag
+    triage -->|"1 · classify first; confident spam stops here"| clf
+    triage -->|"2 · everything else"| rag
     rag --> kb[("knowledge/*.md")]
     sales & know & esc & triage --> llm["OpenAI gpt-4o-mini"]
     sup -. "conversation memory" .-> redis[("Redis (optional)")]
@@ -70,6 +76,21 @@ The AI endpoints need an `X-API-Key` header or a bearer token once `API_KEYS` is
 - **Automation:** n8n workflows route leads to Slack or email by AI-assigned priority.
 
 ## Results
+
+**End to end on the live service** (`python -m eval.live_run --yes`, 2026-11-19). The 84 hand-written leads of the classifier's test set, each with a known label, were sent one by one to the deployed `/analyze-lead`, the way n8n sends them:
+
+| Accuracy | High recall | High precision | Macro F1 | Errors |
+|---|---|---|---|---|
+| **98.8%** | **100%** (25/25) | 96.2% | 0.988 | 0 |
+
+| Who decided | Leads | Wrong | Latency p50 (client side) |
+|---|---|---|---|
+| Fine-tuned classifier alone, no OpenAI call | 14 (17%) | 0 | 0.65 s |
+| GPT-4o-mini + hybrid RAG | 70 | 1 (a Medium called High) | 1.9 s |
+
+The classifier alone scores 85.7% on these leads. Used as a first filter that only answers when it is confident a lead is Low, it saved 17% of the OpenAI calls without costing a single correct answer. The whole run cost about $0.01.
+
+**Caveat:** the leads are fictional, and the classifier's training templates were written in a similar style, so real traffic will be messier and accuracy lower. The script runs on any labelled JSONL file (`--file`), so it can measure that once real leads exist.
 
 **Retrieval quality** (Ragas, 26 questions, judge `gpt-4o-mini`; details in [docs/rag-evaluation.md](docs/rag-evaluation.md)):
 

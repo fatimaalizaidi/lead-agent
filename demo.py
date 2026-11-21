@@ -35,6 +35,7 @@ import classifier
 import jobs
 import memory
 import routing
+import semantic_cache
 from config import get_settings
 from errors import AppError
 from guardrails import sanitize_message
@@ -146,6 +147,7 @@ class LLMResult(BaseModel):
     needs_human_review: bool
     latency_ms: float
     model: str
+    cache: str | None = None  # "exact" / "semantic": answered from the cache, no GPT call
 
 
 class DemoResponse(BaseModel):
@@ -197,6 +199,7 @@ async def _analyze(message: str, thread_id: str | None) -> tuple[LLMResult | Non
             needs_human_review=result.needs_human_review,
             latency_ms=round((time.perf_counter() - started) * 1000, 1),
             model=get_settings().openai_model,
+            cache=result.cache,
         ),
         None,
         result.thread_id,
@@ -233,7 +236,12 @@ async def demo_page() -> FileResponse:
 async def demo_analyze(request: Request, body: DemoRequest) -> DemoResponse:
     """Both models on one lead: GPT + RAG (budgeted) and the fine-tuned classifier (free)."""
     _require_enabled()
-    allowed, remaining = await asyncio.to_thread(_take_budget_sync)
+    # A message already answered (e.g. an example button) comes from the cache: no GPT call, so it
+    # doesn't use the daily budget. Follow-ups always run GPT.
+    if not body.thread_id and await asyncio.to_thread(semantic_cache.peek_exact, body.message):
+        allowed, remaining = True, await asyncio.to_thread(_remaining_sync)
+    else:
+        allowed, remaining = await asyncio.to_thread(_take_budget_sync)
     if allowed:
         (llm, reason, thread_id), clf = await asyncio.gather(
             _analyze(body.message, body.thread_id), _classify(body.message)

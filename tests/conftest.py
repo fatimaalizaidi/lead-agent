@@ -31,6 +31,16 @@ def _reset_settings_cache() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _reset_answer_cache() -> Iterator[None]:
+    """The answer cache keeps an in-process index; start every test without cached answers."""
+    import semantic_cache
+
+    semantic_cache.reset()
+    yield
+    semantic_cache.reset()
+
+
+@pytest.fixture(autouse=True)
 def _reset_rate_limits() -> Iterator[None]:
     """Rate-limit counters live in process memory; start every test with a clean slate."""
     from security import limiter

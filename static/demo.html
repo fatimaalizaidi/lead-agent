@@ -280,8 +280,9 @@
 
   function renderLLM(r) {
     const body = $("llm-body"); body.hidden = false; $("llm-empty").hidden = true;
-    $("llm-lat").textContent = ms(r.latency_ms);
+    $("llm-lat").textContent = ms(r.latency_ms) + (r.cache ? " · from cache" : "");
     const top = el("div"); top.append(pill(r.priority));
+    if (r.cache) { const t = el("span", "tag", r.cache === "exact" ? "⚡ cached answer, no GPT call" : "⚡ near-duplicate answer, no GPT call"); t.style.marginLeft = "8px"; top.append(t); }
     if (r.needs_human_review) { const t = el("span", "tag", "flagged for human review"); t.style.marginLeft = "8px"; top.append(t); }
     const reply = el("div", "reply", r.suggested_response);
     const why = el("div", "meta-line"); why.append(el("b", null, "Why: "), document.createTextNode(r.rationale));

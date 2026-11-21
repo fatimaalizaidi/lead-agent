@@ -33,6 +33,7 @@ LOW_INTENT_REPLY = (
 
 _KEY_TOTAL = "routing:analyze_total"
 _KEY_SKIPPED = "routing:llm_skipped"
+_KEY_CACHE = "routing:cache_hits"
 _local: dict[str, int] = {}
 _lock = threading.Lock()
 
@@ -70,9 +71,9 @@ async def decide_async(message: str, *, has_history: bool) -> Decision:
     return await asyncio.to_thread(decide, message, has_history=has_history)
 
 
-def record(skipped: bool) -> None:
-    """Count one /analyze-lead request, and whether it skipped the LLM."""
-    keys = [_KEY_TOTAL] + ([_KEY_SKIPPED] if skipped else [])
+def record(skipped: bool, *, cache_hit: bool = False) -> None:
+    """Count one /analyze-lead request, whether the classifier skipped the LLM, or a cache hit did."""
+    keys = [_KEY_TOTAL] + ([_KEY_SKIPPED] if skipped else []) + ([_KEY_CACHE] if cache_hit else [])
     client = memory._get_redis_sync()
     if client is not None:
         try:
@@ -89,7 +90,8 @@ def record(skipped: bool) -> None:
 class RoutingStats(BaseModel):
     analyzed: int = Field(description="/analyze-lead requests answered (sync and background jobs)")
     llm_calls_saved: int = Field(description="Requests the classifier answered without calling OpenAI")
-    saved_share: float = Field(description="llm_calls_saved / analyzed (0 when nothing analyzed yet)")
+    cache_hits: int = Field(default=0, description="Requests answered from the answer cache (no GPT call)")
+    saved_share: float = Field(description="(llm_calls_saved + cache_hits) / analyzed; 0 when nothing analyzed")
     threshold: float
     enabled: bool
     since: str = Field(description="Where the counts live: redis (survives restarts) or memory")
@@ -98,21 +100,23 @@ class RoutingStats(BaseModel):
 def stats() -> RoutingStats:
     settings = get_settings()
     client = memory._get_redis_sync()
-    total = skipped = 0
+    total = skipped = cached = 0
     source = "memory"
     if client is not None:
         try:
             total = int(client.get(_KEY_TOTAL) or 0)
             skipped = int(client.get(_KEY_SKIPPED) or 0)
+            cached = int(client.get(_KEY_CACHE) or 0)
             source = "redis"
         except Exception:
             client = None
     if client is None:
-        total, skipped = _local.get(_KEY_TOTAL, 0), _local.get(_KEY_SKIPPED, 0)
+        total, skipped, cached = (_local.get(k, 0) for k in (_KEY_TOTAL, _KEY_SKIPPED, _KEY_CACHE))
     return RoutingStats(
         analyzed=total,
         llm_calls_saved=skipped,
-        saved_share=round(skipped / total, 4) if total else 0.0,
+        cache_hits=cached,
+        saved_share=round((skipped + cached) / total, 4) if total else 0.0,
         threshold=settings.classifier_route_threshold,
         enabled=settings.classifier_route_enabled,
         since=source,

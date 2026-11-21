@@ -78,7 +78,8 @@ async def test_daily_budget_falls_back_to_the_classifier(
     get_settings.cache_clear()
     first = (await client.post("/demo/api/analyze", json=LEAD)).json()
     assert first["llm"] is not None and first["budget_remaining"] == 0
-    second = (await client.post("/demo/api/analyze", json=LEAD)).json()
+    other = {"message": "Budget is signed off for 25 seats; please send the order form this week."}
+    second = (await client.post("/demo/api/analyze", json=other)).json()  # a new lead: not cached
     assert second["llm"] is None and second["llm_skipped_reason"] == "daily_budget_reached"
     assert second["classifier"]["priority"] == "High", "the free model still answers"
     assert fake_llm.chat.completions.create.await_count == 1

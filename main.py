@@ -18,6 +18,7 @@ import classifier
 import demo
 import jobs
 import routing
+import semantic_cache
 from agent import (
     AgentActionRequest,
     AgentActionResponse,
@@ -170,6 +171,10 @@ class AnalyzeLeadResponse(BaseModel):
         default=None, description="The fine-tuned classifier's label (null when it didn't run)"
     )
     classifier_confidence: float | None = Field(default=None, description="Its confidence, 0–1")
+    cache: Literal["exact", "semantic"] | None = Field(
+        default=None, description="Answered from the cache (no GPT call): same message, or a near-duplicate"
+    )
+    cache_similarity: float | None = Field(default=None, description="Cosine similarity of a cache hit")
 
 
 class ErrorBody(BaseModel):
@@ -515,6 +520,36 @@ async def run_analyze_lead(body: AnalyzeLeadRequest, *, classifier_route: bool =
                 **_classifier_fields(decision),
             )
 
+        cached = (
+            await semantic_cache.lookup(body.message) if not prior else semantic_cache.Lookup(None)
+        )
+        if cached.answer is not None:
+            hit = cached.answer
+            append_messages(
+                thread_id,
+                [
+                    {"role": "user", "content": body.message},
+                    {"role": "assistant", "content": hit.suggested_response},
+                ],
+            )
+            if classifier_route:
+                routing.record(skipped=False, cache_hit=True)
+            log_request_end(
+                status=200, total_ms=elapsed_ms(started), needs_human_review=False, path="/analyze-lead"
+            )
+            logger.info("analyze-lead cache hit kind={} similarity={}", cached.kind, cached.similarity)
+            return AnalyzeLeadResponse(
+                email=body.email,  # type: ignore[arg-type]
+                priority=Priority(hit.priority),
+                suggested_response=hit.suggested_response,
+                rationale=hit.rationale,
+                knowledge_sources=hit.knowledge_sources,
+                thread_id=thread_id,
+                cache=cached.kind,  # type: ignore[arg-type]
+                cache_similarity=cached.similarity,
+                **_classifier_fields(decision),
+            )
+
         chunks, rag_unavailable, low_confidence, _best_score = await _retrieve_knowledge(
             body.message
         )
@@ -569,6 +604,17 @@ async def run_analyze_lead(body: AnalyzeLeadRequest, *, classifier_route: bool =
             ],
         )
 
+        if not prior and not needs_human_review:
+            await semantic_cache.store(
+                body.message,
+                semantic_cache.CachedAnswer(
+                    priority=priority.value,
+                    suggested_response=result.suggested_response,
+                    rationale=rationale,
+                    knowledge_sources=sources,
+                ),
+                cached,
+            )
         if classifier_route:
             routing.record(skipped=False)
         log_request_end(

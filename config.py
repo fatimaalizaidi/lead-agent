@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     # /analyze-lead without calling RAG or OpenAI. 0.7 = 0 wrong routes on the hand-written test set.
     classifier_route_enabled: bool = True
     classifier_route_threshold: float = 0.7
+    # Answer cache for /analyze-lead (semantic_cache.py): exact matches, then near-duplicates whose
+    # numbers and classifier label also match. Threshold: see eval/cache_threshold.py.
+    semantic_cache_enabled: bool = True
+    semantic_cache_threshold: float = 0.92
+    semantic_cache_ttl_seconds: int = 86400
+    semantic_cache_max_entries: int = 500
     # Multi-agent Router webhooks (optional). Empty → stub notifications only.
     slack_webhook_url: str = ""
     email_webhook_url: str = ""

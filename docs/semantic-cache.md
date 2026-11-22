@@ -34,7 +34,9 @@ Entries expire after 24 hours (`SEMANTIC_CACHE_TTL_SECONDS`), so a pricing chang
 
 `python -m eval.cache_threshold --yes` embeds the 264 labelled leads (test and validation sets, ~$0.0001). It then looks for **dangerous pairs**: pairs that pass guards 2 and 3 but have different known priorities. It prints the most similar of these and recommends a threshold 0.02 above the highest. Set it on Render with `SEMANTIC_CACHE_THRESHOLD`.
 
-The default of 0.92 is a conservative starting point for `text-embedding-3-small` and has **not** been measured on this data yet. Run the script once and adjust the setting.
+**Measured on 2026-11-22** (264 leads): 393 pairs pass the number and label guards but have different known priorities. The most similar of them reaches only **0.575** cosine: *"Following up on the demo: we're in. Please set up 12 seats…"* (High) vs *"We're a 12-person startup. Maybe next quarter…"* (Medium). So the 0.92 default sits about 0.35 above any dangerous pair, and stays. The script's 0.85 recommendation is its built-in floor, not a measured edge.
+
+Caveat: this data has no labelled paraphrase pairs, so it shows the threshold is **safe**, not how many real near-duplicates it catches. Lowering it towards 0.85 would catch more rewordings and is still far above 0.575. Keep 0.92 until real traffic shows misses worth catching.
 
 ## Where it lives
 

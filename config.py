@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     classifier_route_enabled: bool = True
     classifier_route_threshold: float = 0.7
     # Answer cache for /analyze-lead (semantic_cache.py): exact matches, then near-duplicates whose
-    # numbers and classifier label also match. Threshold: see eval/cache_threshold.py.
+    # numbers and classifier label also match. Threshold: see eval/cache_threshold.py (2026-11-22:
+    # the most similar pair needing a different answer scored 0.575, far below 0.92).
     semantic_cache_enabled: bool = True
     semantic_cache_threshold: float = 0.92
     semantic_cache_ttl_seconds: int = 86400

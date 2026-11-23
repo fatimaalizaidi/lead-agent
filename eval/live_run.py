@@ -54,6 +54,7 @@ COST_PER_LLM_CALL = 0.00015  # gpt-4o-mini, one /analyze-lead with RAG context (
 FIELDS = [
     "n", "gold", "priority", "priority_source", "classifier_priority", "classifier_confidence",
     "needs_human_review", "fallback_reason", "latency_ms", "status", "error_code", "text",
+    "suggested_response", "rationale", "cache",
 ]
 
 
@@ -118,7 +119,8 @@ def send(client: httpx.Client, n: int, lead: dict[str, str], *, sleep=time.sleep
         if resp.status_code == 200:
             body = resp.json()
             for key in ("priority", "priority_source", "classifier_priority", "classifier_confidence",
-                        "needs_human_review", "fallback_reason"):
+                        "needs_human_review", "fallback_reason", "suggested_response", "rationale",
+                        "knowledge_sources", "cache"):
                 row[key] = body.get(key)
             row["error_code"] = None
             return row
@@ -270,7 +272,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None, slee
     stem = args.out_dir / f"live-{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
     stem.with_suffix(".md").write_text(md)
     stem.with_suffix(".json").write_text(json.dumps({"url": url, "summary": summary, "routing_before": before,
-                                                     "routing_after": after}, indent=2))
+                                                     "routing_after": after, "rows": rows}, indent=2))
     with stem.with_suffix(".csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
         writer.writeheader()

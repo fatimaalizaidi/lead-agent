@@ -7,6 +7,7 @@ User-facing notes copied from Cursor Project Context so Claude Desktop (and anyo
 | [agent-tools.md](./agent-tools.md) | Agent tool-calling (`POST /agent-action`) |
 | [conversation-memory.md](./conversation-memory.md) | Redis multi-turn memory (`thread_id`) |
 | [semantic-cache.md](./semantic-cache.md) | Exact + semantic answer cache on `/analyze-lead`, with guards and threshold tuning |
+| [llm-judge.md](./llm-judge.md) | LLM-as-a-judge: grade `/analyze-lead` replies for groundedness, relevance, tone and next step, with a calibration check |
 | [multi-agent-langgraph.md](./multi-agent-langgraph.md) | LangGraph supervisor (Sales/Pricing, Knowledge, Escalation) |
 | [ci-cd.md](./ci-cd.md) | GitHub Actions CI (ruff, pytest, Docker smoke test) gating Render deploys |
 | [deploy-going-live.md](./deploy-going-live.md) | Deploy / going live on Render (overview) |

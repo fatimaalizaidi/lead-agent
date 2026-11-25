@@ -69,6 +69,27 @@ async def test_exact_repeat_skips_gpt(client: AsyncClient, mock_rag, fake_redis,
     assert any(k.startswith("cache:exact:") for k in fake_redis.keys()), "stored in Redis"
 
 
+async def test_a_new_prompt_does_not_reuse_old_answers(
+    client: AsyncClient, mock_rag, fake_redis, embeddings
+) -> None:
+    """Changing the answer prompt (or the knowledge files) must not serve answers from the old one."""
+    embeddings[LEAD] = _vec(1, noise=0.1)
+    embeddings[PARAPHRASE] = _vec(2, noise=0.1)
+    llm = _llm()
+    with patch("main._get_async_client", return_value=llm):
+        await _post(client, LEAD)
+        old_version = semantic_cache.answer_version()
+        semantic_cache.answer_version.cache_clear()
+        with patch("main.SYSTEM_PROMPT", "a new prompt"):
+            assert semantic_cache.answer_version() != old_version
+            exact = await _post(client, LEAD)
+            near = await _post(client, PARAPHRASE)
+        semantic_cache.answer_version.cache_clear()
+    assert exact["cache"] is None, "the old exact answer is not served"
+    assert near["cache"] == "semantic", "answers under the new prompt are cached as usual"
+    assert llm.chat.completions.create.await_count == 2
+
+
 async def test_near_duplicate_is_served(client: AsyncClient, mock_rag, fake_redis, embeddings) -> None:
     embeddings[LEAD] = _vec(1, noise=0.1)
     embeddings[PARAPHRASE] = _vec(2, noise=0.1)

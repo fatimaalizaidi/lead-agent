@@ -28,7 +28,7 @@ Some answers are **never stored or served**:
 - answers flagged for human review, such as a weak knowledge-base match;
 - leads the classifier answered alone, which are free already.
 
-Entries expire after 24 hours (`SEMANTIC_CACHE_TTL_SECONDS`), so a pricing change in `knowledge/` can't keep serving an old answer for long. At most 500 near-duplicate vectors are kept (`SEMANTIC_CACHE_MAX_ENTRIES`), and the oldest are dropped first.
+Every cache key includes a version hash of the answer prompt (`SYSTEM_PROMPT` in `main.py`) and the files in `knowledge/`. A deploy that changes either one starts with an empty cache, so answers written under the old prompt or the old prices are never served. (This was added on 2026-11-25. A prompt fix had been hidden for a day because all 70 live replies came from the cache.) Entries also expire after 24 hours (`SEMANTIC_CACHE_TTL_SECONDS`). At most 500 near-duplicate vectors are kept (`SEMANTIC_CACHE_MAX_ENTRIES`), and the oldest are dropped first.
 
 ## Choosing the threshold
 

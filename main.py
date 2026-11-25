@@ -74,8 +74,10 @@ When earlier user/assistant turns are present in this chat, treat them as the sa
 conversation — reuse company names, seat counts, and commitments the lead already stated.
 When COMPANY KNOWLEDGE is provided, ground suggested_response in those facts
 (pricing, SLA, onboarding, support hours, refunds) when the lead asks about them.
-Do not invent policy details that contradict the knowledge. If knowledge is empty
-or irrelevant, answer generally without fabricating private numbers.
+State a company fact (price, discount, policy, timing, feature, trial, integration,
+customer, compliance) only if COMPANY KNOWLEDGE says it; never say "yes, we do" otherwise.
+If the knowledge does not cover the question, say you will confirm with the team.
+End High and Medium replies with one concrete next step (call, quote, contract).
 Write suggested_response as 1–2 short professional sentences. Write rationale as one clause.
 Do not add extra keys or markdown."""
 

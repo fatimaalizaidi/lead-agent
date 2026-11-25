@@ -70,7 +70,7 @@ def test_full_run_calibrates_and_judges(tmp_path: Path) -> None:
     data = json.loads(next(tmp_path.glob("judge-*.json")).read_text())
     assert data["source"] == str(run)
     cal = data["calibration"]
-    assert (cal["caught"], cal["planted_bad"], cal["passed_good"]) == (5, 5, 3)
+    assert (cal["caught"], cal["planted_bad"], cal["passed_good"]) == (5, 5, 4)
     assert data["summary"]["judged"] == 2 and data["summary"]["pass_rate"] == 0.5
 
     md = next(tmp_path.glob("judge-*.md")).read_text()

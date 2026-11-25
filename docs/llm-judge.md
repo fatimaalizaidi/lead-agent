@@ -17,14 +17,14 @@ The judge runs with `temperature=0` and a strict JSON schema, so every grade has
 
 ## Calibration: can the judge be trusted?
 
-Every run first grades **8 planted replies** whose verdict is known. 5 should fail:
+Every run first grades **9 planted replies** whose verdict is known. 5 should fail:
 - an invented price;
 - a wrong refund promise;
 - an invented 99.999% SLA;
 - an off-topic answer;
 - a rude answer.
 
-3 should pass: a correct pricing answer, a good High-lead reply, and a polite spam decline. The report shows how many it got right. A judge that waves planted defects through is flagged with "read its scores with care".
+4 should pass: a correct pricing answer, a good High-lead reply, a polite spam decline, and an "I'll confirm with the team" answer to a question the knowledge base doesn't cover. The report shows how many it got right. A judge that waves planted defects through is flagged with "read its scores with care".
 
 ## Run it
 
@@ -44,6 +44,20 @@ Every run first grades **8 planted replies** whose verdict is known. 5 should fa
   - every failed reply, with the judge's reason and the unsupported claims.
 - **Keys:** uses `OPENAI_API_KEY` from `.env`.
 - **Cost:** with `gpt-4o-mini` as the judge, about $0.0003 per reply (the knowledge base is ~1.1k tokens). Nothing is sent without `--yes`.
+
+## First run and what it changed (2026-11-25)
+
+The judge caught 5 of 5 planted defects, but failed the good spam decline. Of 70 live GPT replies, 74% passed. Reading the 18 failures against `knowledge/`:
+
+- **About 5 invented facts.** For example "we offer trial accounts", "mid-month seats are prorated", "yes, we have customers in healthcare" and "$149 per seat". None of these is in the knowledge base.
+- **About 8 vague but safe replies,** to questions the knowledge base doesn't cover (Zendesk, Teams, accuracy, nonprofit pricing).
+- **4 judge errors on Low leads** (`ok`, `asdf`, insults), and **1 arithmetic error** (it called $18k too little for 15 Growth seats).
+
+Two fixes followed:
+1. The answer prompt in `main.py` now states a company fact only when the knowledge says it, and otherwise says it will confirm with the team.
+2. The judge prompt now treats a polite Low reply, and "I'll confirm", as grounded. It also checks arithmetic against plan limits.
+
+Rerun both steps to compare.
 
 ## Limits
 

@@ -64,6 +64,12 @@ Score the REPLY from 1 (bad) to 5 (excellent) on:
   (High: concrete step such as contract, call or onboarding; Medium: helpful info and an
   invitation; Low: polite and brief).
 
+Low-priority leads (spam, gibberish, off-topic questions, insults) need no information:
+a polite, brief reply that declines, redirects or asks what they need scores 4 or 5 on
+groundedness, relevance and next_step, as long as it makes no claim about the company.
+Saying the knowledge doesn't cover something and offering to confirm is grounded, not a defect.
+Check arithmetic against the plan limits before calling a budget or seat claim wrong.
+
 List every unsupported claim verbatim in unsupported_claims (empty list if none).
 Give a one-sentence reason. Return JSON only."""
 
@@ -108,6 +114,9 @@ CALIBRATION = [
               "for your 40 seats this week."},
     {"text": "Cheap SEO backlinks, reply for our price list!", "priority": "Low", "expect": "pass", "defect": None,
      "reply": "Thanks for reaching out, but we're not looking for SEO services right now."},
+    {"text": "Can I get a trial account to explore?", "priority": "Medium", "expect": "pass", "defect": None,
+     "reply": "Good question. I'll confirm trial options with the team and get back to you today; "
+              "would a short call this week help in the meantime?"},
 ]
 
 

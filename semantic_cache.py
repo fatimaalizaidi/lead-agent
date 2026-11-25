@@ -15,7 +15,9 @@ need different answers ("40 seats by Friday" vs "4 seats next year"):
 - the fine-tuned classifier gives both messages the **same priority**.
 
 Never cached: follow-up turns (their answer depends on the conversation), answers flagged for
-human review, and leads the classifier answered alone (already free). Entries expire after
+human review, and leads the classifier answered alone (already free). Every key includes a
+version hash of the answer prompt and the knowledge files, so changing either one starts a fresh
+cache instead of serving answers written under the old rules. Entries expire after
 ``SEMANTIC_CACHE_TTL_SECONDS`` (default 24 h), so a pricing change in the knowledge base can't
 keep serving an old answer for long. At most ``SEMANTIC_CACHE_MAX_ENTRIES`` near-duplicate
 vectors are kept (oldest dropped). Without Redis the cache lives in process memory.
@@ -31,6 +33,8 @@ import re
 import threading
 import time
 from dataclasses import asdict, dataclass
+from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 from loguru import logger
@@ -44,6 +48,7 @@ EMBED_DIMENSIONS = 256
 _EXACT_PREFIX = "cache:exact:"
 _INDEX_KEY = "cache:semantic"
 _NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)*")
+_KNOWLEDGE_DIR = Path(__file__).resolve().parent / "knowledge"
 
 _lock = threading.Lock()
 _local_answers: dict[str, tuple[float, str]] = {}  # key -> (expires_at, json) when Redis is off
@@ -76,8 +81,20 @@ def numbers(text: str) -> list[str]:
     return sorted(n.replace(",", "") for n in _NUMBER_RE.findall(text))
 
 
+@lru_cache(maxsize=1)
+def answer_version() -> str:
+    """Hash of what shapes an answer: the system prompt and the knowledge files."""
+    from main import SYSTEM_PROMPT
+
+    h = hashlib.sha256(SYSTEM_PROMPT.encode())
+    for path in sorted(_KNOWLEDGE_DIR.glob("*.md")):
+        h.update(path.name.encode() + b"\0" + path.read_bytes())
+    return h.hexdigest()[:12]
+
+
 def exact_key(text: str) -> str:
-    return _EXACT_PREFIX + hashlib.sha256(normalize(text).encode()).hexdigest()[:32]
+    raw = answer_version() + "\n" + normalize(text)
+    return _EXACT_PREFIX + hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
 def _label(text: str) -> str | None:
@@ -136,7 +153,10 @@ def _add_to_index(key: str, vector: list[float], nums: list[str], label: str | N
     settings = get_settings()
     vec = np.asarray(vector, dtype=np.float32)
     vec = vec / (np.linalg.norm(vec) or 1.0)
-    entry = {"k": key, "n": nums, "l": label, "t": time.time(), "v": base64.b64encode(vec.tobytes()).decode()}
+    entry = {
+        "k": key, "n": nums, "l": label, "ver": answer_version(), "t": time.time(),
+        "v": base64.b64encode(vec.tobytes()).decode(),
+    }
     with _lock:
         index = _load_index()
         index[:] = [e for e in index if e["k"] != key]
@@ -184,10 +204,11 @@ def _best_match(vector: list[float], nums: list[str], label: str | None) -> tupl
     vec = vec / (np.linalg.norm(vec) or 1.0)
     ttl = get_settings().semantic_cache_ttl_seconds
     now = time.time()
+    version = answer_version()
     with _lock:
         candidates = [
             e for e in _load_index()
-            if e["n"] == nums and e["l"] == label and now - e["t"] < ttl
+            if e["n"] == nums and e["l"] == label and e.get("ver") == version and now - e["t"] < ttl
         ]
     if not candidates:
         return None
@@ -233,3 +254,4 @@ def reset() -> None:
     with _lock:
         _local_answers.clear()
         _index = None
+    answer_version.cache_clear()

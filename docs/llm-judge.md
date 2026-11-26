@@ -64,3 +64,10 @@ Rerun both steps to compare.
 - **Self-preference:** a `gpt-4o-mini` judge grading `gpt-4o-mini` replies may be lenient towards its own style. `--judge-model gpt-4o` gives an independent, stricter read.
 - **A guide, not a measurement:** the scores are for finding bad replies and tracking changes, not a precise quality number. Read the failed replies; they are the useful part.
 - **Not run in CI:** it calls OpenAI, so it stays a manual step, like `eval/run_ragas.py`. CI tests the script with a fake judge (`tests/test_judge.py`).
+
+## Rerun after the prompt and cache fixes (2026-11-25)
+
+- **Calibration:** 9 of 9 correct.
+- **Unsupported claims:** 7 → 4. Pass rate 89%; rerunning the judge on identical replies varies by ±3%.
+- **Still invented:** the trial, healthcare and proration claims remain. The judge also missed two of them this time, so it is a guide, not a guarantee.
+- **Priority accuracy:** 97.6%, one lead lower.

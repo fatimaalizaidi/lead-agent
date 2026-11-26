@@ -13,7 +13,7 @@ An AI back end that triages inbound sales leads and answers them. A LangGraph su
 
 **Live API:** <https://lead-agent-fjxq.onrender.com/docs>. It runs on Render's free plan, so the first request after a quiet period takes about 30–50 s while it wakes up.
 
-**Live test, 84 labelled leads:** **98.8% accuracy, 100% of buying leads caught**, and 17% of leads answered by the fine-tuned classifier without calling OpenAI, for about one US cent ([details](#results)).
+**Live test, 84 labelled leads:** **97.6–98.8% accuracy over four runs, 100% of buying leads caught**, and 17% of leads answered by the fine-tuned classifier without calling OpenAI, for about one US cent. Every GPT reply is then graded by a calibrated LLM judge ([details](#results)).
 
 Built by **Fatima Zaidi** ([GitHub](https://github.com/fatimaalizaidi)).
 
@@ -65,32 +65,43 @@ The AI endpoints need an `X-API-Key` header or a bearer token once `API_KEYS` is
 
 - **Multi-agent orchestration:** a LangGraph supervisor with Sales, Knowledge and Escalation agents, and OpenAI function calling for quotes, calendar slots and human hand-off.
 - **Hybrid RAG:** ChromaDB vector search plus BM25 keyword search, merged with Reciprocal Rank Fusion, with optional cross-encoder or Cohere re-ranking.
+- **LLM-as-a-judge:** `eval/judge.py` grades every live GPT reply against the knowledge base (groundedness, relevance, tone, next step) and lists invented claims. Before scoring, it must sort 9 planted replies with known verdicts correctly. It found GPT inventing a free trial and a proration policy; see [Results](#results).
 - **Evaluation:** a Ragas harness (faithfulness, answer relevancy, context recall and precision) on a 26-question golden set, comparing retrieval modes.
 - **LLMOps quality gate:** a free GitHub Actions workflow scores retrieval on all 26 golden questions (top-1 accuracy, hit rate, MRR, fact recall) on every PR and `main` push that touches retrieval or the knowledge base, plus weekly, and **fails if any metric drops under its floor**, so Render won't deploy a regression. It needs no LLM or API key: vector search uses a local embedding model.
 - **Production-ready API:** FastAPI with strict JSON-schema outputs (Pydantic), input guardrails, soft fallbacks when retrieval fails, `X-Request-ID` correlation, and Redis conversation memory.
 - **Background job queue:** `POST /jobs/*` returns `202` at once and an arq worker on Redis runs the AI call, with retries and backoff for OpenAI 429/502s and per-key job privacy. `GET /jobs/stats` is the monitoring view (queue depth, failures, p50/p95 wait and run times, worker heartbeat), standing in for Celery's Flower. The worker runs inside the API on the free plan, or as separately scaled services (`docker compose up --scale worker=3`).
 - **Fine-tuning:** a LoRA fine-tuned all-MiniLM-L6-v2 classifier (0.33% of weights trained, 17 s on a laptop), merged and exported to int8 ONNX (23 MB), serves `POST /classify-priority` in ~2 ms with no OpenAI cost, and runs first on `/analyze-lead` so confident spam never reaches OpenAI (`GET /routing/stats` counts the calls saved). On 84 hand-written test leads: **85.7% accuracy and 100% High recall**, vs 72.6% for a frozen-encoder baseline. CI fails if a retrained model drops under its floors. `finetune/export_langsmith.py` builds the next training set from production traces (gpt-4o-mini as teacher), with PII masked, a time-based test split and nothing committed.
 - **API security:** API keys with zero-downtime rotation, OAuth2 client-credentials JWTs (revoked along with their key), and per-key `slowapi` rate limiting that returns 429 with `Retry-After`.
-- **CI/CD:** GitHub Actions runs ruff, **206 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
+- **CI/CD:** GitHub Actions runs ruff, **207 pytest tests** (OpenAI, Redis and webhooks mocked) and a Docker build with a `/health` smoke test. Render deploys `main`.
 - **Observability:** LangSmith traces every request (agent nodes, LLM calls, tools, retrieval steps), and structured JSON logs record latency, tokens, **cost in USD** and failed tool calls.
 - **Automation:** n8n workflows route leads to Slack or email by AI-assigned priority.
 
 ## Results
 
-**End to end on the live service** (`python -m eval.live_run --yes`, 2026-11-19). The 84 hand-written leads of the classifier's test set, each with a known label, were sent one by one to the deployed `/analyze-lead`, the way n8n sends them:
+**End to end on the live service** (`python -m eval.live_run --yes`, latest run 2026-11-25). The 84 hand-written leads of the classifier's test set, each with a known label, were sent one by one to the deployed `/analyze-lead`, the way n8n sends them:
 
 | Accuracy | High recall | High precision | Macro F1 | Errors |
 |---|---|---|---|---|
-| **98.8%** | **100%** (25/25) | 96.2% | 0.988 | 0 |
+| **97.6%** (98.8% in the three earlier runs) | **100%** (25/25) | 96.2% | 0.976 | 0 |
 
 | Who decided | Leads | Wrong | Latency p50 (client side) |
 |---|---|---|---|
-| Fine-tuned classifier alone, no OpenAI call | 14 (17%) | 0 | 0.65 s |
-| GPT-4o-mini + hybrid RAG | 70 | 1 (a Medium called High) | 1.9 s |
+| Fine-tuned classifier alone, no OpenAI call | 14 (17%) | 0 | 0.31 s |
+| GPT-4o-mini + hybrid RAG | 70 | 2 (Medium called High, and Medium called Low) | 2.3 s |
 
 The classifier alone scores 85.7% on these leads. Used as a first filter that only answers when it is confident a lead is Low, it saved 17% of the OpenAI calls without costing a single correct answer. The whole run cost about $0.01.
 
 **Caveat:** the leads are fictional, and the classifier's training templates were written in a similar style, so real traffic will be messier and accuracy lower. The script runs on any labelled JSONL file (`--file`), so it can measure that once real leads exist.
+
+**Reply quality** (`python -m eval.judge --yes`, judge `gpt-4o-mini`; [docs/llm-judge.md](docs/llm-judge.md)):
+
+| Run | Calibration | Pass rate | Replies with an invented claim | Groundedness | Next step |
+|---|---|---|---|---|---|
+| First judge | 7 of 8 planted cases right (failed a good spam reply) | 74% | 4 | 4.56 | 3.61 |
+| Fixed judge, same replies | 9 of 9 | 87–90% | 7–9 | 4.6–4.7 | 4.3 |
+| Fixed judge, new grounding prompt | 9 of 9 | 89% | 4 | 4.71 | 4.37 |
+
+The judge varies by about ±3% when it re-grades identical replies, so small changes are noise. It is useful for finding bad replies. Some invented claims (a free trial, healthcare customers, a proration policy) still appear after the prompt fix, and the judge does not flag every one, so it is a guide rather than a guarantee.
 
 **Retrieval quality** (Ragas, 26 questions, judge `gpt-4o-mini`; details in [docs/rag-evaluation.md](docs/rag-evaluation.md)):
 
@@ -113,6 +124,8 @@ The classifier alone scores 85.7% on these leads. Used as a first filter that on
 - **Retrieval silently dropped half of each article.** The Ragas evaluation showed retrieval kept only one chunk per article. Fixing it raised context recall from 0.80 to 0.93 and ended the "I don't have that information" answers.
 - **Production crash (exit code 132).** `chroma-hnswlib` has no Python 3.13 wheel, so it compiled with `-march=native` for the CPU of Render's build machine and crashed on the runtime CPU. Building with `HNSWLIB_NO_NATIVE=1` fixed both Render and an intermittent CI failure.
 - **22 s requests on Render.** LangSmith traces showed retrieval was slow but not why. Adding per-step spans pinned 18–24 s on the cross-encoder re-ranker, which is too heavy for 0.1 CPU. Turning it off in production brought warm requests to about 2 s, for a small recall cost (0.91 vs 0.93).
+- **GPT invented company facts.** The LLM judge showed replies promising a free trial, prorated billing and a per-seat price that the knowledge base doesn't contain. The answer prompt now says it will confirm with the team instead. This cut flagged replies from 7 to 4, but did not remove them all.
+- **The cache hid a prompt fix.** After the prompt change, all 70 live replies were identical to the day before: the answer cache was still serving answers written under the old prompt. Cache keys now include a hash of the prompt and the knowledge files, so a change to either starts a fresh cache.
 - **Policy questions routed to Sales.** A LangSmith trace showed the supervisor sending "Sev-1 response time?" to Sales, so it skipped retrieval. Routing now sends policy and SLA questions to Knowledge.
 
 ## Deployment notes
@@ -135,7 +148,7 @@ All guides (RAG, agents, memory, guardrails, n8n, deploy, testing): **[docs/](./
 ## Setup
 
 ```bash
-cd ~/Projects/lead-agent   # or docs/lead-analyzer in Context
+git clone https://github.com/fatimaalizaidi/lead-agent.git && cd lead-agent
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
@@ -237,6 +250,9 @@ Example response shape:
 | `knowledge_sources` | string[] | Titles of KB articles retrieved for this request |
 | `needs_human_review` | bool | `true` when a soft fallback forced human review |
 | `fallback_reason` | string \| null | e.g. `rag_unavailable`, `low_rag_confidence` |
+| `priority_source` | string | `llm` or `classifier` (a confident Low answered without OpenAI) |
+| `classifier_priority`, `classifier_confidence` | string, float | The fine-tuned model's own label and confidence |
+| `cache`, `cache_similarity` | string \| null, float \| null | `exact` or `semantic` when the answer came from the cache |
 
 Uses model `gpt-4o-mini` (override with `OPENAI_MODEL`) with strict JSON-schema `response_format` so `priority` stays in that enum. RAG context is prompt-only; it is **not** part of the OpenAI JSON schema.
 

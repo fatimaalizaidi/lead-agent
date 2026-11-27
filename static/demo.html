@@ -67,8 +67,17 @@
   button.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
   button:disabled { opacity: .55; cursor: progress; }
   .hint { color: var(--faint); font-size: 13px; }
-  .followup { display: none; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin-left: auto; }
-  .followup.show { display: flex; }
+  .chat { display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow-y: auto; margin: 0 0 14px;
+    padding: 4px 2px 12px; border-bottom: 1px solid var(--border); }
+  .chat[hidden] { display: none; }
+  .bubble { max-width: 82%; padding: 10px 13px; border-radius: 14px; font-size: 14.5px; line-height: 1.45; white-space: pre-wrap; }
+  .bubble.me { align-self: flex-end; background: var(--accent-soft); border-bottom-right-radius: 4px; }
+  .bubble.ai { align-self: flex-start; background: var(--surface-2); border-bottom-left-radius: 4px; }
+  .bubble .who { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+  .bubble .pill { font-size: 11.5px; padding: 2px 8px; }
+  .bubble.pending { color: var(--faint); font-style: italic; }
+  .newchat { margin-left: auto; }
+  .newchat[hidden] { display: none; }
   .banner { margin: 18px 0 0; padding: 12px 14px; border-radius: 10px; font-size: 14px; display: none; }
   .banner.show { display: block; }
   .banner.agree { background: var(--ok-bg); color: var(--ok); }
@@ -144,7 +153,8 @@
   </div>
 
   <div class="card composer">
-    <label class="lbl" for="msg">Lead message</label>
+    <div class="chat" id="chat" hidden aria-live="polite"></div>
+    <label class="lbl" for="msg" id="msg-lbl">Lead message</label>
     <textarea id="msg" maxlength="1000" placeholder="e.g. We need 40 seats by Friday, budget is approved. Can you send the contract?"></textarea>
     <div class="chips" id="chips">
       <button class="chip" data-text="Budget is approved for 40 seats. Please send the contract today, we want to start Monday.">🔥 Ready to buy</button>
@@ -158,7 +168,7 @@
       <button class="primary" id="go">Analyze with both models</button>
       <button class="secondary" id="fast">Fine-tuned model only</button>
       <span class="hint" id="budget"></span>
-      <label class="followup" id="followup"><input type="checkbox" id="cont"> Send as a follow-up (conversation memory)</label>
+      <button class="secondary newchat" id="newchat" hidden>New conversation</button>
     </div>
     <div class="note">Messages go to OpenAI and to the app's tracing logs. Please don't paste personal or confidential data.</div>
   </div>
@@ -255,7 +265,20 @@
   let threadId = null;
 
   document.querySelectorAll(".chip").forEach((chip) =>
-    chip.addEventListener("click", () => { msg.value = chip.dataset.text; $("cont").checked = false; msg.focus(); }));
+    chip.addEventListener("click", () => { newConversation(); msg.value = chip.dataset.text; msg.focus(); }));
+  const chat = $("chat");
+  function newConversation() {
+    threadId = null; chat.replaceChildren(); chat.hidden = true; $("newchat").hidden = true;
+    $("msg-lbl").textContent = "Lead message";
+  }
+  function addBubble(kind, text, priority) {
+    const b = el("div", "bubble " + kind);
+    const who = el("div", "who", kind === "me" ? "Customer" : "Acme (AI reply)");
+    if (priority) who.append(pill(priority));
+    b.append(who, document.createTextNode(text));
+    chat.hidden = false; chat.append(b); chat.scrollTop = chat.scrollHeight;
+    return b;
+  }
 
   function el(tag, cls, text) {
     const node = document.createElement(tag);
@@ -324,7 +347,7 @@
     const slow = both ? setTimeout(() => showBanner("differ", "Waking up the knowledge index… the first request after a quiet spell can take ~10 s."), 4000) : null;
     try {
       const payload = { message: text };
-      if (both && $("cont").checked && threadId) payload.thread_id = threadId;
+      if (both && threadId) payload.thread_id = threadId;
       const resp = await fetch(both ? "/demo/api/analyze" : "/demo/api/classify", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
@@ -341,7 +364,16 @@
       if (data.classifier) renderCLF(data.classifier); else empty("clf", "Classifier unavailable.");
       if (data.llm) {
         renderLLM(data.llm);
-        threadId = data.thread_id; $("followup").classList.add("show");
+        const followUp = Boolean(threadId);
+        threadId = data.thread_id;
+        addBubble("me", text, data.llm.priority);
+        addBubble("ai", data.llm.suggested_response);
+        msg.value = ""; $("msg-lbl").textContent = "Reply as the customer (the AI remembers this conversation)";
+        $("newchat").hidden = false;
+        if (followUp && data.classifier) {
+          showBanner("differ", "Follow-up: GPT sees the whole conversation; the fine-tuned model only sees this one message, so its guess can differ.");
+          return;
+        }
         if (data.classifier) {
           const same = data.llm.priority === data.classifier.priority;
           showBanner(same ? "agree" : "differ", same
@@ -379,6 +411,7 @@
   }
 
   go.addEventListener("click", () => run("both"));
+  $("newchat").addEventListener("click", () => { newConversation(); msg.focus(); });
   fast.addEventListener("click", () => run("fast"));
   msg.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") run("both"); });
   loadInfo();

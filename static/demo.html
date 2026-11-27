@@ -358,6 +358,21 @@
     $("budget").textContent = n > 0 ? n + " GPT analyses left today" : "Today's GPT budget is used up: the fine-tuned model still works";
   }
 
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // The free server sleeps when idle; while it wakes, requests fail or return 502/503/504. Retry for ~75 s.
+  async function postWithWake(url, payload) {
+    const tries = 8;
+    for (let i = 1; ; i++) {
+      try {
+        const resp = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        if (![502, 503, 504].includes(resp.status) || i === tries) return resp;
+      } catch (e) {
+        if (i === tries) throw e;
+      }
+      showBanner("differ", `The free server is waking up, this can take up to a minute. Trying again automatically (${i} of ${tries - 1})…`);
+      await sleep(10000);
+    }
+  }
   async function run(mode) {
     const text = msg.value.trim();
     if (!text) { msg.focus(); return; }
@@ -369,9 +384,7 @@
     try {
       const payload = { message: text };
       if (both && $("cont").checked && threadId) payload.thread_id = threadId;
-      const resp = await fetch(both ? "/demo/api/analyze" : "/demo/api/classify", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
-      });
+      const resp = await postWithWake(both ? "/demo/api/analyze" : "/demo/api/classify", payload);
       const data = await resp.json().catch(() => ({}));
       clearTimeout(slow); hideBanner();
       if (!resp.ok) {
@@ -400,7 +413,7 @@
       loadInfo();
     } catch (e) {
       clearTimeout(slow); empty("llm", "No result."); empty("clf", "No result.");
-      showBanner("error", "Couldn't reach the server. It may be waking up: try again in a few seconds.");
+      showBanner("error", "Couldn't reach the server after a minute of trying. Please refresh the page and try again.");
     } finally { go.disabled = fast.disabled = false; }
   }
 

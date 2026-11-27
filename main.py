@@ -61,8 +61,8 @@ from tracing import TracingMiddleware, configure_tracing, wrap_client
 setup_logging()
 configure_tracing()
 
-# Cap output tokens → lower latency + cost. 1–2 short sentences fit easily under this.
-MAX_TOKENS = 160
+# Cap output tokens → lower latency + cost. Room for a 5-sentence product explanation + rationale.
+MAX_TOKENS = 300
 
 # Keep this short: every token in the system prompt costs time/money on every request.
 # Rules that must be machine-enforced live on LeadAnalysisResult (Pydantic → JSON schema).
@@ -78,7 +78,9 @@ State a company fact (price, discount, policy, timing, feature, trial, integrati
 customer, compliance) only if COMPANY KNOWLEDGE says it; never say "yes, we do" otherwise.
 If the knowledge does not cover the question, say you will confirm with the team.
 End High and Medium replies with one concrete next step (call, quote, contract).
-Write suggested_response as 1–2 short professional sentences. Write rationale as one clause.
+Write suggested_response as 1–2 short professional sentences. When the lead asks what Acme
+LeadDesk does or how it would help them, use up to 5 sentences: explain it from the Product
+Overview and tie it to their situation. Write rationale as one clause.
 Do not add extra keys or markdown."""
 
 class Priority(str, Enum):
@@ -97,8 +99,8 @@ class LeadAnalysisResult(BaseModel):
     suggested_response: str = Field(
         ...,
         min_length=1,
-        max_length=280,
-        description="1–2 short professional reply sentences",
+        max_length=700,
+        description="1–2 short professional sentences; up to 5 when explaining the product",
     )
     rationale: str = Field(
         ...,

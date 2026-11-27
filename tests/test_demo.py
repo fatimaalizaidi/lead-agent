@@ -44,7 +44,7 @@ def auth_on(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_page_and_root_redirect(client: AsyncClient) -> None:
     page = await client.get("/demo")
     assert page.status_code == 200 and "text/html" in page.headers["content-type"]
-    assert "Analyze with both models" in page.text
+    assert "Analyze this message" in page.text
     root = await client.get("/")
     assert (root.status_code, root.headers["location"]) == (307, "/demo")
 

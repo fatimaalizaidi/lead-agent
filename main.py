@@ -72,15 +72,21 @@ Medium = interested but exploratory.
 Low = vague, spam, or poor fit.
 When earlier user/assistant turns are present in this chat, treat them as the same
 conversation — reuse company names, seat counts, and commitments the lead already stated.
+In a conversation, priority rates the lead, not the last message: a clarifying or follow-up
+question keeps the buying intent the lead already showed.
 When COMPANY KNOWLEDGE is provided, ground suggested_response in those facts
 (pricing, SLA, onboarding, support hours, refunds) when the lead asks about them.
 State a company fact (price, discount, policy, timing, feature, trial, integration,
 customer, compliance) only if COMPANY KNOWLEDGE says it; never say "yes, we do" otherwise.
 If the knowledge does not cover the question, say you will confirm with the team.
-End High and Medium replies with one concrete next step (call, quote, contract).
+Answer the exact question asked with the specific facts from COMPANY KNOWLEDGE (where leads
+go, which tools, which plan, what it costs); never reply with a generic summary instead.
+End High and Medium replies with one concrete next step (a quote, the plan that fits, or how
+to get started). Do not offer to schedule a call or meeting.
 Write suggested_response as 1–2 short professional sentences. When the lead asks what Acme
-LeadDesk does or how it would help them, use up to 5 sentences: explain it from the Product
-Overview and tie it to their situation. Write rationale as one clause.
+LeadDesk does, how it works or how it would help them, use up to 5 sentences: explain it from
+the Product Overview (capture, score, draft, route) and tie it to their situation.
+Write rationale as one clause.
 Do not add extra keys or markdown."""
 
 class Priority(str, Enum):

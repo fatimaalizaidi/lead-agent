@@ -68,7 +68,7 @@ async def test_multi_agent_sales_with_quote_tool(
         ]
     )
     sales_reply = completion_with_content(
-        "Starter for 10 seats is $490/month. I can also book a demo."
+        "10 seats fit Growth at $149/month. I can also book a demo."
     )
     supervisor_finish = completion_with_json(
         {"next": "finish", "reason": "quote delivered"}
@@ -92,7 +92,7 @@ async def test_multi_agent_sales_with_quote_tool(
     assert len(body["tools_called"]) == 1
     assert body["tools_called"][0]["name"] == "calculate_custom_quote"
     assert body["tools_called"][0]["result"]["ok"] is True
-    assert body["tools_called"][0]["result"]["monthly_total_usd"] == 490.0
+    assert body["tools_called"][0]["result"]["monthly_total_usd"] == 149.0  # 10 seats -> Growth
 
 
 @pytest.mark.asyncio
@@ -320,7 +320,7 @@ async def test_multi_agent_mixed_message_routes_knowledge_then_sales(
             completion_with_tool_calls(
                 [("call_q", "calculate_custom_quote", {"tier": "starter", "seats": 10})]
             ),
-            completion_with_content("Starter for 10 seats is $490/month."),
+            completion_with_content("10 seats fit Growth at $149/month."),
             completion_with_json({"next": "finish", "reason": "both parts answered"}),
         ]
     )
@@ -340,7 +340,7 @@ async def test_multi_agent_mixed_message_routes_knowledge_then_sales(
     assert [t["name"] for t in body["tools_called"]] == ["calculate_custom_quote"]
     assert "refund" in body["agent_reply"].lower()
     # Code keeps knowledge's answer ahead of the sales part.
-    assert body["agent_reply"] == f"{knowledge_answer}\n\nStarter for 10 seats is $490/month."
+    assert body["agent_reply"] == f"{knowledge_answer}\n\n10 seats fit Growth at $149/month."
     mock_rag_multiagent.assert_called_once()
 
     # Second supervisor hop sees knowledge already called and its reply.
@@ -364,7 +364,7 @@ async def test_multi_agent_sales_can_hand_back_to_knowledge(
     openai_client = make_async_openai_client(
         [
             completion_with_json({"next": "sales", "reason": "quote"}),
-            completion_with_content("Growth for 60 seats is $8,940/month."),
+            completion_with_content("60 seats need an Enterprise quote."),
             completion_with_json({"next": "knowledge", "reason": "discount policy unanswered"}),
             completion_with_content("Volume discounts start at 50 Growth seats."),
             completion_with_json({"next": "finish", "reason": "done"}),
@@ -384,6 +384,6 @@ async def test_multi_agent_sales_can_hand_back_to_knowledge(
     body = resp.json()
     assert body["route_trace"] == ["sales", "knowledge"]
     assert body["agent_reply"] == (
-        "Growth for 60 seats is $8,940/month.\n\nVolume discounts start at 50 Growth seats."
+        "60 seats need an Enterprise quote.\n\nVolume discounts start at 50 Growth seats."
     )
     mock_rag_multiagent.assert_called_once()

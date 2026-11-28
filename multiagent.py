@@ -269,7 +269,7 @@ SALES_TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "name": "calculate_custom_quote",
             "description": (
                 "Calculate a monthly custom quote for a pricing tier and seat count. "
-                "Tiers: starter ($49), growth ($149), enterprise ($399)."
+                "Plans: starter $49/month up to 3 seats, growth $149/month up to 15 seats, enterprise custom."
             ),
             "parameters": {
                 "type": "object",

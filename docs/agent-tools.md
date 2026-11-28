@@ -11,7 +11,7 @@ Same shape as `/analyze-lead`:
 ```json
 {
   "email": "alex@acme.com",
-  "message": "Can I get a quote for 25 Growth seats?"
+  "message": "Can I get a quote for 12 Growth seats?"
 }
 ```
 
@@ -22,19 +22,21 @@ Inputs are sanitized with the existing guardrails (length, injection patterns, e
 ```json
 {
   "email": "alex@acme.com",
-  "agent_reply": "For 25 Growth seats, the stub monthly total is $3,725 USD.",
+  "agent_reply": "Growth covers your 12 seats for $149/month ($1,519.80/year with annual billing).",
   "tools_called": [
     {
       "name": "calculate_custom_quote",
-      "arguments": { "tier": "growth", "seats": 25 },
+      "arguments": { "tier": "growth", "seats": 12 },
       "result": {
         "ok": true,
         "tier": "growth",
-        "seats": 25,
-        "unit_price_usd": 149.0,
-        "monthly_total_usd": 3725.0,
+        "requested_tier": "growth",
+        "seats": 12,
+        "seat_limit": 15,
+        "monthly_total_usd": 149.0,
+        "annual_total_usd": 1519.8,
         "currency": "USD",
-        "note": "Stub quote — not a binding offer. Enterprise may need custom terms."
+        "note": "Flat monthly price up to the seat limit; annual billing saves 15%. Not a binding offer."
       }
     }
   ],
@@ -52,7 +54,7 @@ Inputs are sanitized with the existing guardrails (length, injection patterns, e
 
 | Tool | Purpose |
 | --- | --- |
-| `calculate_custom_quote(tier, seats)` | Stub monthly quote: tier base × seats. Tiers: `starter` ($49), `growth` ($149), `enterprise` ($399) |
+| `calculate_custom_quote(tier, seats)` | Monthly quote from the price list in `knowledge/pricing.md`: `starter` $49/month up to 3 seats, `growth` $149/month up to 15 seats (flat, not per seat). Too many seats for a plan moves to the plan that fits; `enterprise` (or more than 15 seats) returns no price, because it is a custom quote |
 | `check_calendar_availability()` | Stub available demo slots (fake UTC windows) |
 | `escalate_to_human_support()` | Stub escalation ticket id + `queued` status |
 

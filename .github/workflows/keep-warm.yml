@@ -1,0 +1,19 @@
+# Render's free plan sleeps after 15 minutes without traffic, and the first visitor then waits
+# ~50 s. This pings /health every 10 minutes so the public demo answers at once.
+# One always-on free service uses ~730 of Render's 750 free hours a month.
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping /health
+        run: curl --fail --silent --show-error --max-time 90 --retry 2 https://lead-agent-fjxq.onrender.com/health

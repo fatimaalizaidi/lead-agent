@@ -26,12 +26,12 @@ async def test_agent_action_quote_tool_loop(
             (
                 "call_quote_1",
                 "calculate_custom_quote",
-                {"tier": "growth", "seats": 25},
+                {"tier": "growth", "seats": 12},
             )
         ]
     )
     second = completion_with_content(
-        "Growth for 25 seats is $3,725/month. Let me know if you want a demo."
+        "Growth covers 12 seats for $149/month. I can send the quote today."
     )
     openai_client = make_async_openai_client([first, second])
 
@@ -41,14 +41,14 @@ async def test_agent_action_quote_tool_loop(
     assert resp.status_code == 200
     body = resp.json()
     assert body["email"] == SAMPLE_AGENT["email"]
-    assert "3,725" in body["agent_reply"] or "3725" in body["agent_reply"].replace(",", "")
+    assert "$149" in body["agent_reply"]
     assert body["iterations"] == 2
     assert len(body["tools_called"]) == 1
     tool = body["tools_called"][0]
     assert tool["name"] == "calculate_custom_quote"
-    assert tool["arguments"] == {"tier": "growth", "seats": 25}
+    assert tool["arguments"] == {"tier": "growth", "seats": 12}
     assert tool["result"]["ok"] is True
-    assert tool["result"]["monthly_total_usd"] == 3725.0
+    assert tool["result"]["monthly_total_usd"] == 149.0
     assert isinstance(body["thread_id"], str) and body["thread_id"]
     assert openai_client.chat.completions.create.await_count == 2
 

@@ -118,6 +118,10 @@
   .stat .l { color: var(--muted); font-size: 13px; }
   .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; align-items: stretch; }
   @media (max-width: 860px) { .flow { grid-template-columns: 1fr; } }
+  .flow.three { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 860px) { .flow.three { grid-template-columns: 1fr; } }
+  .cta-row { margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .cta-row .btn-link { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; padding: 9px 14px; }
   .step { padding: 14px; position: relative; }
   .step .k { font-size: 11px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .6px; }
   .step h4 { margin: 4px 0 4px; font-size: 14.5px; }
@@ -194,6 +198,20 @@
     </div>
   </div>
 
+  <section class="block" id="your-business">
+    <h2>Want this for your own business?</h2>
+    <p class="lead">Acme LeadDesk is a made-up company for this demo, but the system is real. It can be connected to the channels your customers already use, so every message is triaged where it arrives and the people ready to buy come first.</p>
+    <div class="flow three">
+      <div class="card step"><div class="k">1 · Connect</div><h4>Where your messages arrive</h4><p>WhatsApp Business, your website chat or contact form, email, or your own booking or CRM software, through a webhook or the API.</p></div>
+      <div class="card step"><div class="k">2 · Customize</div><h4>Your prices, your rules</h4><p>The AI answers from your own packages, prices, timings and policies, and learns what a hot lead means for your business.</p></div>
+      <div class="card step"><div class="k">3 · Triage</div><h4>Hot leads first</h4><p>High: your team gets an alert at once. Medium: a follow-up list. Low: a polite automatic reply or filtered out.</p></div>
+    </div>
+    <div class="cta-row">
+      <a class="btn-link" href="https://github.com/fatimaalizaidi" target="_blank" rel="noopener">Get in touch</a>
+      <span class="hint">Tell me where your customer messages arrive and I'll show you how it would work for you.</span>
+    </div>
+  </section>
+
   <section class="block">
     <h2>What happens when you click</h2>
     <p class="lead">What the production API does with every lead the n8n workflow sends it. On this page GPT always runs as well, so you can compare the two models.</p>
@@ -223,7 +241,7 @@
     <h2>The whole pipeline, tested live</h2>
     <p class="lead">The same 84 labelled leads sent one by one to this deployed API, the way n8n sends them. The classifier answers only when it is sure a lead is low intent; GPT handles the rest.</p>
     <div class="stats">
-      <div class="card stat"><div class="n">98.8%</div><div class="l">accuracy end to end (83 of 84)</div></div>
+      <div class="card stat"><div class="n">97.6–98.8%</div><div class="l">accuracy end to end, over four live runs on 84 leads</div></div>
       <div class="card stat"><div class="n">25 / 25</div><div class="l">buying leads caught</div></div>
       <div class="card stat"><div class="n">17%</div><div class="l">answered without calling OpenAI, 0 mistakes</div></div>
     </div>

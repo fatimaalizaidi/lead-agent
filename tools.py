@@ -13,24 +13,21 @@ from typing import Any
 from loguru import logger
 
 # ---------------------------------------------------------------------------
-# Pricing tiers (USD / seat / month). Documented here for the model + callers.
-# Starter / Growth match public list; Enterprise is a negotiated base.
+# Pricing plans, as in knowledge/pricing.md: a flat monthly price up to a seat limit.
+# Enterprise has no list price (custom quote).
 # ---------------------------------------------------------------------------
-TIER_BASE_USD: dict[str, float] = {
-    "starter": 49.0,
-    "growth": 149.0,
-    "enterprise": 399.0,
-}
-VALID_TIERS = frozenset(TIER_BASE_USD)
+PLAN_PRICE_USD: dict[str, float] = {"starter": 49.0, "growth": 149.0}
+PLAN_SEAT_LIMIT: dict[str, int] = {"starter": 3, "growth": 15}
+VALID_TIERS = frozenset({"starter", "growth", "enterprise"})
+ANNUAL_DISCOUNT = 0.15
 
 
 def calculate_custom_quote(tier: str, seats: int) -> dict[str, Any]:
-    """Return a stub monthly quote: ``tier_base × seats``.
+    """Monthly quote for a plan and seat count, from the public price list.
 
-    Tiers (USD base per seat / month):
-      - starter: 49
-      - growth: 149
-      - enterprise: 399
+    Starter is $49/month for up to 3 seats, Growth $149/month for up to 15 seats (flat
+    price, not per seat). More seats than a plan allows: the smallest plan that fits is
+    suggested instead. Enterprise (or more than 15 seats) is a custom quote with no price.
     """
     normalized = (tier or "").strip().lower()
     if normalized not in VALID_TIERS:
@@ -47,22 +44,35 @@ def calculate_custom_quote(tier: str, seats: int) -> dict[str, Any]:
     if seat_count > 10_000:
         return {"ok": False, "error": "seats exceeds maximum of 10000"}
 
-    base = TIER_BASE_USD[normalized]
-    monthly_total = round(base * seat_count, 2)
+    plan = normalized
+    if plan != "enterprise" and seat_count > PLAN_SEAT_LIMIT[plan]:
+        plan = next((p for p in ("starter", "growth") if seat_count <= PLAN_SEAT_LIMIT[p]), "enterprise")
+    if plan == "enterprise":
+        logger.info("tool calculate_custom_quote tier={} seats={} -> enterprise", normalized, seat_count)
+        return {
+            "ok": True,
+            "tier": "enterprise",
+            "requested_tier": normalized,
+            "seats": seat_count,
+            "monthly_total_usd": None,
+            "currency": "USD",
+            "note": "Enterprise is a custom quote (unlimited seats); the sales team prepares it.",
+        }
+
+    monthly = PLAN_PRICE_USD[plan]
     logger.info(
-        "tool calculate_custom_quote tier={} seats={} monthly_total={}",
-        normalized,
-        seat_count,
-        monthly_total,
+        "tool calculate_custom_quote tier={} seats={} plan={} monthly={}", normalized, seat_count, plan, monthly
     )
     return {
         "ok": True,
-        "tier": normalized,
+        "tier": plan,
+        "requested_tier": normalized,
         "seats": seat_count,
-        "unit_price_usd": base,
-        "monthly_total_usd": monthly_total,
+        "seat_limit": PLAN_SEAT_LIMIT[plan],
+        "monthly_total_usd": monthly,
+        "annual_total_usd": round(monthly * 12 * (1 - ANNUAL_DISCOUNT), 2),
         "currency": "USD",
-        "note": "Stub quote — not a binding offer. Enterprise may need custom terms.",
+        "note": "Flat monthly price up to the seat limit; annual billing saves 15%. Not a binding offer.",
     }
 
 
@@ -122,7 +132,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "description": (
                 "Calculate a monthly custom quote for a pricing tier and seat count. "
                 "Use when the customer asks about pricing, quotes, cost, or seats. "
-                "Tiers: starter ($49/seat), growth ($149/seat), enterprise ($399/seat)."
+                "Plans: starter $49/month up to 3 seats, growth $149/month up to 15 seats "
+                "(flat price, not per seat), enterprise custom quote."
             ),
             "parameters": {
                 "type": "object",

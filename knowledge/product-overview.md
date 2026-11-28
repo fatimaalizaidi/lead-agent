@@ -19,6 +19,8 @@ Any business that receives more enquiries than its team can answer quickly: soft
 ## Integrations
 Inbox forwarding, Slack alerts, CRM webhooks to Salesforce or HubSpot, custom HTTPS webhooks and a REST API. There is no Microsoft Teams alert integration yet; other tools connect through webhooks or the API.
 
+**Custom setup:** LeadDesk can be connected to WhatsApp Business (through the WhatsApp Business API) or to a business's own booking or CRM software (through webhooks or the API), so the messages customers already send are triaged where they arrive. Replies can be customized with the business's own packages, prices, timings and policies. Custom setups are scoped by the sales team.
+
 ## Trials and getting started
 - There is **no free trial**. New subscriptions are covered by the **14-day refund window** in the Refund Policy, so a team can try a monthly plan and cancel within 14 days.
 - Self-serve plans can be live the same day.
